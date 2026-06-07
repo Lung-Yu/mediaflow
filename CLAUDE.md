@@ -76,7 +76,7 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 pipeline/
   watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
   runner.py           — shared stage executor (ctx dict protocol, stage registry)
-  stages.py           — preprocess / transcribe / verify_segments / correct_srt / summarize / detect_chapters
+  stages.py           — preprocess / transcribe / verify_segments / correct_srt / diarize / summarize / detect_chapters
   prompts.py          — loader for pipeline/prompts.yaml
   prompts.yaml        — all Ollama prompt templates (git-tracked; edit to tune)
   rerun.py            — CLI: --stem / --from-stage re-run via runner.execute()
@@ -104,6 +104,10 @@ web/
 
 config.yaml           — gitignored; copy from config.yaml.example
 docker-compose.yml    — redis + api + web; volume mounts workspace/ and data/
+
+diarize/
+  service.py          — FastAPI diarization service on :9003; speechbrain ECAPA-TDNN + sklearn
+  requirements.txt    — Apache 2.0 deps only; no HuggingFace token required (separate venv)
 ```
 
 ---
@@ -191,6 +195,27 @@ silenceremove=start_periods=1:start_silence=0.5:start_threshold=-50dB:detection=
 ```
 Output: 16kHz mono WAV.
 
+### Diarization Service (`pipeline/stages.py: diarize()`)
+
+**No HuggingFace token needed.** speechbrain ECAPA-TDNN model (~200 MB) downloads on first request and caches in `~/.cache/speechbrain/`. Apache 2.0 licensed.
+
+Start: `bash scripts/start-diarize.sh` (creates `venv-diarize/` on first run)
+
+```python
+# POST /diarize
+httpx.post(
+    "http://localhost:9003/diarize",
+    files={"audio": (audio_path.name, file_handle)},
+    data={"segments": json.dumps([{"start": 1.0, "end": 3.5}, ...])},  # from _segments.json
+    params={"num_speakers": 2},   # optional; omit for auto-detection
+    timeout=600.0,
+)
+# Response: {"segments": [{"speaker": "SPEAKER_00", "start": 1.0, "end": 3.5}, ...]}
+```
+
+When `segments` is passed, uses Whisper's segmentation instead of running VAD.
+Speaker labels in SRT: `【SPEAKER_00】text` (configurable via `diarization.speaker_format`).
+
 ---
 
 ## Redis Streams Schema
@@ -273,13 +298,14 @@ CREATE TABLE events (
 | —    | DAG stage runner | `pipeline/runner.py` (shared by watcher + rerun) |
 | P4-1 | Segment verification (whisper-large-v3) | `pipeline/stages.py` (`verify_segments`), `runner.py` |
 | P4-2 | Chapter detection (silence gaps + Ollama titling) | `pipeline/stages.py` (`detect_chapters`), `prompts.yaml` |
+| P4-3 | Speaker diarization (speechbrain, Apache 2.0) | `diarize/service.py`, `pipeline/stages.py` (`diarize`) |
 | P5   | Mermaid architecture diagram | CLAUDE.md System Architecture |
 
 ### ❌ Not Yet Implemented
 
 **Phase 4 — Remaining**
 
-- **Speaker diarization**: pyannote.audio (needs HuggingFace token). Reference: `automate/pipeline/modules/diarizer.py`.
+- **Speaker enrollment (Phase 2):** voiceprint library for recurring speakers. Pre-record sample → extract ECAPA-TDNN embedding → store in `data/speaker_library.json`. At diarization time, match each cluster against library; known speaker gets display name, unknown gets UNKNOWN_X. CLI: `python -m pipeline.enroll --name 老師 --audio sample.wav`.
 
 ---
 

@@ -19,6 +19,8 @@ pipeline:
       enabled: false               # re-transcribe low-confidence segments with whisper-large-v3
     - id: correct_srt
       enabled: false               # Ollama homophone correction pass (~30s)
+    - id: diarize
+      enabled: false               # speaker diarization via speechbrain ECAPA-TDNN :9003
     - id: summarize
       enabled: true
     - id: detect_chapters
@@ -31,6 +33,13 @@ verification:
 chapters:
   min_silence_sec: 30.0            # minimum silence gap to be a chapter boundary
   max_chapters: 8                  # cap on total chapters generated
+
+diarization:
+  service_url: http://localhost:9003
+  num_speakers: null               # set to known count for better accuracy (e.g. 2)
+  speaker_format: "【{speaker}】"   # prefix format; use "" to disable labels in SRT
+  speaker_names: {}                # display name mapping e.g. {SPEAKER_00: 老師, SPEAKER_01: 學生}
+  cluster_threshold: 0.4          # cosine distance threshold for auto speaker count
 
 whisper:
   service_url: http://localhost:9001
