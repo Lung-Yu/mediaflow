@@ -40,11 +40,16 @@ flowchart TD
         TR -->|segments.json| VER[verify_segments ◇\nWhisper-large :9001]
         VER --> COR[correct_srt ◇\nOllama :11434]
         TR --> COR
-        COR --> SUM[summarize\nOllama :11434]
+        COR --> DIAR[diarize ◇\nspeechbrain :9003]
+        TR --> DIAR
+        DIAR --> SUM[summarize\nOllama :11434]
+        COR --> SUM
         TR --> SUM
+        SUM --> CH[detect_chapters ◇\nOllama :11434]
     end
 
-    SUM --> OUT[workspace/3_output/\n.srt  _summary.md  _summary.json]
+    CH --> OUT[workspace/3_output/\n.srt  _summary.md  _chapters.json]
+    SUM --> OUT
     PRE --> ARC[workspace/4_archive/]
 
     RUN -->|xadd| RED[(Redis Stream\nmediaflow:events)]
