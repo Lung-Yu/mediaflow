@@ -1,15 +1,15 @@
 # Pipeline (host-native)
-watchdog==4.0.1
-redis==5.0.4
+watchdog==6.0.0
+redis==5.2.1
 pyyaml==6.0.2
 
 # API
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-jinja2==3.1.4
-python-multipart==0.0.9
-httpx==0.27.0
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+jinja2==3.1.6
+python-multipart==0.0.20
+httpx==0.28.1
 
 # Shared
-aiofiles==23.2.1
+aiofiles==24.1.0
 aiosqlite==0.20.0
