@@ -237,6 +237,7 @@ def diarize(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
     speaker_fmt = d_cfg.get("speaker_format", "【{speaker}】")
     speaker_names = d_cfg.get("speaker_names", {})
     num_speakers = d_cfg.get("num_speakers", None)
+    max_speakers = d_cfg.get("max_speakers", 6)
 
     if not audio_path.exists():
         log.warning("diarize: clean WAV not found for %s — skipping", stem)
@@ -249,7 +250,9 @@ def diarize(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
         whisper_segs = [{"start": s["start"], "end": s["end"]} for s in raw]
 
     try:
-        params = {"num_speakers": num_speakers} if num_speakers else {}
+        params = {"max_speakers": max_speakers}
+        if num_speakers:
+            params["num_speakers"] = num_speakers
         data = {"segments": json.dumps(whisper_segs)} if whisper_segs else {}
         with open(audio_path, "rb") as f:
             resp = httpx.post(

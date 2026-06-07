@@ -37,9 +37,9 @@ chapters:
 diarization:
   service_url: http://localhost:9003
   num_speakers: null               # set to known count for better accuracy (e.g. 2)
+  max_speakers: 6                  # cap for auto-detection via silhouette score
   speaker_format: "【{speaker}】"   # prefix format; use "" to disable labels in SRT
   speaker_names: {}                # display name mapping e.g. {SPEAKER_00: 老師, SPEAKER_01: 學生}
-  cluster_threshold: 0.4          # cosine distance threshold for auto speaker count
 
 whisper:
   service_url: http://localhost:9001

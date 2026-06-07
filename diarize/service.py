@@ -24,6 +24,7 @@ import torch
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import normalize
 
 app = FastAPI()
@@ -77,27 +78,44 @@ def _embed_segment(encoder, wav_path: Path, start: float, end: float) -> Optiona
         clip.unlink(missing_ok=True)
 
 
-def _cluster(embeddings: list, num_speakers: Optional[int], threshold: float) -> list:
+def _best_n_speakers(X: np.ndarray, max_n: int) -> int:
+    """Pick optimal speaker count using silhouette score (higher = more distinct clusters).
+
+    Tries n = 2..max_n, returns n with the highest silhouette score.
+    Returns 1 if all scores are below 0.15 (embeddings too similar — likely 1 speaker).
+    """
+    best_n = 1
+    best_score = -1.0
+    for n in range(2, min(max_n + 1, len(X))):
+        labels = AgglomerativeClustering(
+            n_clusters=n, metric="cosine", linkage="average"
+        ).fit_predict(X)
+        if len(set(labels)) < 2:
+            continue
+        score = float(silhouette_score(X, labels, metric="cosine"))
+        if score > best_score:
+            best_score = score
+            best_n = n
+    return 1 if best_score < 0.15 else best_n
+
+
+def _cluster(embeddings: list, num_speakers: Optional[int], max_auto: int) -> list:
     if len(embeddings) == 1:
         return [0]
     X = normalize(np.array(embeddings))
-    if num_speakers:
-        model = AgglomerativeClustering(
-            n_clusters=num_speakers, metric="cosine", linkage="average"
-        )
-    else:
-        model = AgglomerativeClustering(
-            n_clusters=None, distance_threshold=threshold,
-            metric="cosine", linkage="average"
-        )
-    return model.fit_predict(X).tolist()
+    n = num_speakers if num_speakers else _best_n_speakers(X, max_auto)
+    if n == 1:
+        return [0] * len(X)
+    return AgglomerativeClustering(
+        n_clusters=n, metric="cosine", linkage="average"
+    ).fit_predict(X).tolist()
 
 
 def _process_diarize(
     wav_bytes: bytes,
     segs_json: Optional[str],
     num_speakers: Optional[int],
-    cluster_threshold: float,
+    max_auto_speakers: int,
 ) -> dict:
     """Blocking work — runs in a thread pool executor."""
     encoder = _get_encoder()
@@ -129,7 +147,7 @@ def _process_diarize(
         if not embeddings:
             return {"segments": []}
 
-        labels = _cluster(embeddings, num_speakers, cluster_threshold)
+        labels = _cluster(embeddings, num_speakers, max_auto_speakers)
 
         # Build a speaker label → time mapping from sampled embeddings
         sampled_with_labels = [
@@ -170,7 +188,7 @@ async def diarize_endpoint(
     audio: UploadFile = File(...),
     segments: Optional[str] = Form(None),
     num_speakers: Optional[int] = Query(None),
-    cluster_threshold: float = Query(0.4),
+    max_speakers: int = Query(6),
 ):
     try:
         wav_bytes = await audio.read()
@@ -181,7 +199,7 @@ async def diarize_endpoint(
             wav_bytes,
             segments,
             num_speakers,
-            cluster_threshold,
+            max_speakers,
         )
         return JSONResponse(result)
     except Exception as exc:
