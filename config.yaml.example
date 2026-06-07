@@ -21,10 +21,16 @@ pipeline:
       enabled: false               # Ollama homophone correction pass (~30s)
     - id: summarize
       enabled: true
+    - id: detect_chapters
+      enabled: false               # silence-gap chapter detection + Ollama titling
 
 verification:
   logprob_threshold: -0.8          # flag segments with avg_logprob below this
   no_speech_threshold: 0.7         # flag segments with no_speech_prob above this
+
+chapters:
+  min_silence_sec: 30.0            # minimum silence gap to be a chapter boundary
+  max_chapters: 8                  # cap on total chapters generated
 
 whisper:
   service_url: http://localhost:9001

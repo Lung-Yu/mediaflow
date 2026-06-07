@@ -31,6 +31,7 @@ _DEFAULT_STAGES = [
     {"id": "verify_segments",  "enabled": False},
     {"id": "correct_srt",      "enabled": False},
     {"id": "summarize",        "enabled": True},
+    {"id": "detect_chapters",  "enabled": False},
 ]
 
 
@@ -83,12 +84,21 @@ def _adapt_summarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return {**ctx, "summary_md": md_path}, {}
 
 
+def _adapt_detect_chapters(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    srt_path = ctx["srt_path"]
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found: {srt_path}")
+    chapters_path = stages.detect_chapters(ctx["stem"], srt_path, ctx["output_dir"], cfg)
+    return {**ctx, "chapters_path": chapters_path}, {}
+
+
 STAGE_RUNNERS: dict[str, Callable] = {
     "preprocess":      _adapt_preprocess,
     "transcribe":      _adapt_transcribe,
     "verify_segments": _adapt_verify_segments,
     "correct_srt":     _adapt_correct_srt,
     "summarize":       _adapt_summarize,
+    "detect_chapters": _adapt_detect_chapters,
 }
 
 

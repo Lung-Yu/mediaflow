@@ -76,7 +76,7 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 pipeline/
   watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
   runner.py           — shared stage executor (ctx dict protocol, stage registry)
-  stages.py           — preprocess / transcribe / verify_segments / correct_srt / summarize (pure functions)
+  stages.py           — preprocess / transcribe / verify_segments / correct_srt / summarize / detect_chapters
   prompts.py          — loader for pipeline/prompts.yaml
   prompts.yaml        — all Ollama prompt templates (git-tracked; edit to tune)
   rerun.py            — CLI: --stem / --from-stage re-run via runner.execute()
@@ -272,14 +272,14 @@ CREATE TABLE events (
 | —    | Prompt config management | `pipeline/prompts.yaml` + `pipeline/prompts.py` |
 | —    | DAG stage runner | `pipeline/runner.py` (shared by watcher + rerun) |
 | P4-1 | Segment verification (whisper-large-v3) | `pipeline/stages.py` (`verify_segments`), `runner.py` |
+| P4-2 | Chapter detection (silence gaps + Ollama titling) | `pipeline/stages.py` (`detect_chapters`), `prompts.yaml` |
 | P5   | Mermaid architecture diagram | CLAUDE.md System Architecture |
 
 ### ❌ Not Yet Implemented
 
-**Phase 4 — Remaining domain features**
+**Phase 4 — Remaining**
 
 - **Speaker diarization**: pyannote.audio (needs HuggingFace token). Reference: `automate/pipeline/modules/diarizer.py`.
-- **Chapter detection**: insert chapter markers based on silence gaps and semantic topic boundaries.
 
 ---
 

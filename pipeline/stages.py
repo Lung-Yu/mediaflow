@@ -233,6 +233,13 @@ def _end_seconds(time_line: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
 
 
+def _start_seconds(time_line: str) -> float:
+    start = time_line.split("-->")[0].strip()
+    h, m, rest = start.split(":")
+    s, ms = rest.split(",")
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+
+
 def _fmt_duration(s: float) -> str:
     s = int(s)
     h, s = divmod(s, 3600)
@@ -434,3 +441,92 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
 
     log.info("summarize done: %s → %s + %s", stem, md_path.name, json_path.name)
     return md_path
+
+
+# ── Stage 4: Chapter Detection ───────────────────────────────────────────────
+
+def detect_chapters(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
+    """Detect chapter boundaries from silence gaps, title each via Ollama.
+
+    Outputs {stem}_chapters.json. Appends chapter index to {stem}_summary.md
+    if it already exists.
+    Never raises.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    chapters_path = output_dir / f"{stem}_chapters.json"
+
+    srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = _parse_srt_blocks(srt_content)
+
+    if len(blocks) < 3:
+        log.info("detect_chapters: too few blocks for %s", stem)
+        chapters_path.write_text("[]", encoding="utf-8")
+        return chapters_path
+
+    ch_cfg = cfg.get("chapters", {})
+    min_silence = float(ch_cfg.get("min_silence_sec", 30.0))
+    max_chapters = int(ch_cfg.get("max_chapters", 8))
+    model = cfg["ollama"].get("model", "qwen2.5:7b")
+
+    # Detect silence gaps between consecutive segments
+    gaps = []
+    for i in range(len(blocks) - 1):
+        gap = _start_seconds(blocks[i + 1]["time"]) - _end_seconds(blocks[i]["time"])
+        if gap >= min_silence:
+            gaps.append((i + 1, gap))
+
+    # Keep the largest gaps up to max_chapters - 1 boundaries
+    boundaries = sorted(gaps, key=lambda x: -x[1])[:max_chapters - 1]
+    boundaries = sorted(boundaries, key=lambda x: x[0])  # restore time order
+
+    chapter_start_indices = [0] + [b[0] for b in boundaries]
+
+    chapters = []
+    for ch_idx, blk_idx in enumerate(chapter_start_indices):
+        start_sec = _start_seconds(blocks[blk_idx]["time"])
+        start_fmt = _fmt_duration(start_sec)
+
+        # Context: few lines around the boundary
+        before = "\n".join(
+            blocks[j]["text"]
+            for j in range(max(0, blk_idx - 3), blk_idx)
+        )
+        after = "\n".join(
+            blocks[j]["text"]
+            for j in range(blk_idx, min(len(blocks), blk_idx + 3))
+        )
+
+        if ch_idx == 0:
+            prompt = PROMPTS["chapters"]["first_title"] + "\n\n" + after
+        else:
+            prompt = (
+                PROMPTS["chapters"]["boundary_title"] + "\n\n"
+                + "【前段】\n" + before + "\n\n"
+                + "【後段】\n" + after
+            )
+
+        title = _ollama_chat(model, prompt).strip()
+        if not title or len(title) > 20:
+            title = f"第{ch_idx + 1}段"
+
+        chapters.append({
+            "index": ch_idx,
+            "start": start_fmt,
+            "start_seconds": round(start_sec, 1),
+            "title": title,
+        })
+
+    chapters_path.write_text(
+        json.dumps(chapters, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Append to summary.md if it exists
+    md_path = output_dir / f"{stem}_summary.md"
+    if md_path.exists() and chapters:
+        with open(md_path, "a", encoding="utf-8") as f:
+            f.write("\n## 章節索引\n")
+            for ch in chapters:
+                f.write(f"- `[{ch['start']}]` {ch['title']}\n")
+
+    log.info("detect_chapters done: %s (%d chapters)", stem, len(chapters))
+    return chapters_path
