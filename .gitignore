@@ -14,8 +14,9 @@ pipeline.db
 *.db-shm
 *.db-wal
 
-# Workspace (large files, not versioned)
+# Runtime data (not versioned)
 workspace/
+data/
 
 # macOS
 .DS_Store

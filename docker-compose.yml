@@ -26,6 +26,7 @@ services:
       - REDIS_PORT=6379
       - DB_PATH=/app/data/pipeline.db
       - WORKSPACE_DIR=/workspace
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
     volumes:
       - ./workspace:/workspace:ro   # read-only SRT access (same-machine deploy)
       - ./data:/app/data            # writable dir for pipeline.db
