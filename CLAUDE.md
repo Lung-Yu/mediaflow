@@ -50,7 +50,11 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 ```
 pipeline/
   watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
-  stages.py           — preprocess / transcribe / correct_srt / summarize stage runners
+  runner.py           — shared stage executor (ctx dict protocol, stage registry)
+  stages.py           — preprocess / transcribe / correct_srt / summarize (pure functions)
+  prompts.py          — loader for pipeline/prompts.yaml
+  prompts.yaml        — all Ollama prompt templates (git-tracked; edit to tune)
+  rerun.py            — CLI: --stem / --from-stage re-run via runner.execute()
   mq/publisher.py     — Redis xadd wrapper (EventPublisher)
   config.py           — load config.yaml + workspace path helper
 
@@ -106,9 +110,14 @@ api:
 notification:
   webhook_url: ""            # optional: n8n / ntfy / Slack
 
-# Phase 3 options (both default off/auto):
-#   pipeline.llm_correction: true   — Ollama correction pass after Whisper (~30s extra)
-#   pipeline.recording_type: course — use course-specific prompts (auto-detects from stem)
+# Stage enable/disable (no code change needed):
+#   pipeline.stages[correct_srt].enabled: true  — Ollama correction pass (~30s extra)
+#
+# Recording-type prompts (auto-detects from stem name; override if needed):
+#   pipeline.recording_type: course   # course | meeting | general | auto
+#
+# Edit Ollama prompt text without touching Python:
+#   pipeline/prompts.yaml  — all prompt templates; restart watcher after editing
 ```
 
 ---
@@ -235,6 +244,8 @@ CREATE TABLE events (
 | P1-4 | Stage incremental re-run (`--from-stage`) | `pipeline/rerun.py` |
 | P5   | Smoke test + fixture audio | `tests/fixtures/test-speech.m4a`, `tests/run-pipeline-test.sh` |
 | P3   | Recording-type prompts + LLM correction | `pipeline/stages.py` (`correct_srt`, `_detect_recording_type`) |
+| —    | Prompt config management | `pipeline/prompts.yaml` + `pipeline/prompts.py` |
+| —    | DAG stage runner | `pipeline/runner.py` (shared by watcher + rerun) |
 
 ### ❌ Not Yet Implemented
 

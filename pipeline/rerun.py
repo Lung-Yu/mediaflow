@@ -1,6 +1,6 @@
 """Re-run pipeline stages from a specific stage for a previously processed stem.
 
-Useful when tuning Ollama prompts: skip FFmpeg + Whisper, only redo summarize().
+Useful when tuning prompts: skip FFmpeg + Whisper, only redo summarize().
 
 Usage:
     python -m pipeline.rerun --stem lesson01 --from-stage summary
@@ -12,16 +12,14 @@ import logging
 import sys
 from pathlib import Path
 
-from pipeline.config import load, workspace
+from pipeline.config import load
 from pipeline.mq.publisher import EventPublisher
-from pipeline import stages
+from pipeline import runner
 
 log = logging.getLogger(__name__)
 
-STAGES = ["preprocessing", "transcription", "summary"]
 
-
-def _find_original(stem: str, ws: Path, formats: list[str]) -> Path | None:
+def _find_original(stem: str, ws: Path, formats: list) -> "Path | None":
     for search_dir in ("4_archive", "1_input"):
         for ext in formats:
             p = ws / search_dir / f"{stem}{ext}"
@@ -32,44 +30,20 @@ def _find_original(stem: str, ws: Path, formats: list[str]) -> Path | None:
 
 def rerun(stem: str, from_stage: str, cfg: dict, pub: EventPublisher) -> None:
     ws = Path(cfg["pipeline"]["workspace_dir"])
-    output_dir = ws / "3_output"
-    proc_dir = ws / "2_processing"
     formats = cfg["pipeline"]["supported_formats"]
 
-    start_idx = STAGES.index(from_stage)
+    ctx = {
+        "stem": stem,
+        "input_path": _find_original(stem, ws, formats),
+        "workspace": ws,
+        "output_dir": ws / "3_output",
+        "audio_path": ws / "2_processing" / f"{stem}_clean.wav",
+        "srt_path": ws / "3_output" / f"{stem}.srt",
+    }
 
     pub.publish("task.submitted", stem)
-
-    # Stage 1 — preprocessing
-    if start_idx <= 0:
-        original = _find_original(stem, ws, formats)
-        if not original:
-            raise FileNotFoundError(
-                f"No source audio for {stem!r} in 4_archive/ or 1_input/"
-            )
-        audio_path = stages.preprocess(original, ws, cfg)
-        pub.publish("stage.completed", stem, stage="preprocessing", filename=original.name)
-    else:
-        audio_path = proc_dir / f"{stem}_clean.wav"
-
-    # Stage 2 — transcription
-    if start_idx <= 1:
-        if not audio_path.exists():
-            raise FileNotFoundError(f"Processed WAV not found: {audio_path}")
-        srt_path = stages.transcribe(audio_path, stem, output_dir, cfg)
-        pub.publish("stage.completed", stem, stage="transcription", output_path=str(srt_path))
-        if cfg.get("pipeline", {}).get("llm_correction", False):
-            stages.correct_srt(stem, srt_path, cfg)
-    else:
-        srt_path = output_dir / f"{stem}.srt"
-
-    # Stage 3 — summary (always runs)
-    if not srt_path.exists():
-        raise FileNotFoundError(f"SRT not found: {srt_path}")
-    stages.summarize(stem, srt_path, output_dir, cfg)
-    pub.publish("stage.completed", stem, stage="summary")
-
-    pub.publish("task.completed", stem, output_path=str(srt_path))
+    ctx = runner.execute(cfg, ctx, pub, from_stage=from_stage)
+    pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
 
 
 def main() -> None:
@@ -80,9 +54,8 @@ def main() -> None:
     parser.add_argument(
         "--from-stage",
         required=True,
-        choices=STAGES,
         dest="from_stage",
-        help="Stage to start from (skips earlier stages)",
+        help="Stage id to start from (skips earlier stages)",
     )
     args = parser.parse_args()
 

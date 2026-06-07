@@ -1,0 +1,122 @@
+"""Shared pipeline executor — runs configured stages in order.
+
+Called by watcher.py (full run) and rerun.py (partial re-run).
+
+Each stage adapter follows the protocol:
+    (ctx: dict, cfg: dict) -> (ctx: dict, pub_extra: dict)
+
+ctx is a dict carrying paths between stages:
+    stem        str   — file stem (e.g. "lesson01")
+    workspace   Path  — workspace root
+    output_dir  Path  — workspace/3_output
+    input_path  Path  — original audio (1_input/ or 4_archive/)
+    audio_path  Path  — processed WAV (2_processing/)  [set by preprocess]
+    srt_path    Path  — transcript (3_output/)          [set by transcribe]
+    summary_md  Path  — summary markdown                [set by summarize]
+
+pub_extra is merged into the stage.completed Redis event.
+"""
+import logging
+from pathlib import Path
+from typing import Callable, Optional
+
+from pipeline import stages
+from pipeline.mq.publisher import EventPublisher
+
+log = logging.getLogger(__name__)
+
+_DEFAULT_STAGES = [
+    {"id": "preprocess",  "enabled": True},
+    {"id": "transcribe",  "enabled": True},
+    {"id": "correct_srt", "enabled": False},
+    {"id": "summarize",   "enabled": True},
+]
+
+
+# ── Stage adapters ───────────────────────────────────────────────────────────
+
+def _adapt_preprocess(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    input_path = ctx.get("input_path")
+    if not input_path or not input_path.exists():
+        raise FileNotFoundError(
+            f"No source audio for {ctx['stem']!r} — "
+            "expected in 4_archive/ or 1_input/"
+        )
+    audio_path = stages.preprocess(input_path, ctx["workspace"], cfg)
+    return {**ctx, "audio_path": audio_path}, {"filename": input_path.name}
+
+
+def _adapt_transcribe(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    audio_path = ctx["audio_path"]
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Processed WAV not found: {audio_path}")
+    srt_path = stages.transcribe(audio_path, ctx["stem"], ctx["output_dir"], cfg)
+    return {**ctx, "srt_path": srt_path}, {"output_path": str(srt_path)}
+
+
+def _adapt_correct_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    srt_path = ctx["srt_path"]
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found for correction: {srt_path}")
+    stages.correct_srt(ctx["stem"], srt_path, cfg)
+    return ctx, {}
+
+
+def _adapt_summarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    srt_path = ctx["srt_path"]
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found: {srt_path}")
+    md_path = stages.summarize(ctx["stem"], srt_path, ctx["output_dir"], cfg)
+    return {**ctx, "summary_md": md_path}, {}
+
+
+STAGE_RUNNERS: dict[str, Callable] = {
+    "preprocess":  _adapt_preprocess,
+    "transcribe":  _adapt_transcribe,
+    "correct_srt": _adapt_correct_srt,
+    "summarize":   _adapt_summarize,
+}
+
+
+# ── Executor ─────────────────────────────────────────────────────────────────
+
+def execute(
+    cfg: dict,
+    ctx: dict,
+    pub: EventPublisher,
+    from_stage: Optional[str] = None,
+) -> dict:
+    """Run enabled pipeline stages in config order.
+
+    from_stage: skip all stages before this id (used by rerun.py).
+    ctx must contain: stem, workspace, output_dir.
+    Pre-populate audio_path/srt_path when skipping earlier stages.
+    """
+    stage_cfgs = cfg.get("pipeline", {}).get("stages", _DEFAULT_STAGES)
+
+    if from_stage:
+        known_ids = [s["id"] for s in stage_cfgs]
+        if from_stage not in known_ids:
+            raise ValueError(
+                f"Stage {from_stage!r} not found in pipeline.stages config. "
+                f"Available: {known_ids}"
+            )
+
+    past_start = from_stage is None
+
+    for s in stage_cfgs:
+        sid = s["id"]
+        if not past_start:
+            if sid == from_stage:
+                past_start = True
+            else:
+                continue
+        if not s.get("enabled", True):
+            continue
+        if sid not in STAGE_RUNNERS:
+            log.warning("Stage %r has no runner — add to runner.STAGE_RUNNERS", sid)
+            continue
+        ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
+        pub.publish("stage.completed", ctx["stem"], stage=sid, **extra)
+
+    return ctx

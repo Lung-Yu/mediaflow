@@ -9,8 +9,16 @@ pipeline:
     - .mp3
     - .wav
     - .flac
-  llm_correction: false            # Ollama pass to fix Whisper STT errors (adds ~30s)
   recording_type: auto             # auto | course | meeting | general
+  stages:
+    - id: preprocess
+      enabled: true
+    - id: transcribe
+      enabled: true
+    - id: correct_srt
+      enabled: false               # set true to run Ollama STT correction (~30s)
+    - id: summarize
+      enabled: true
 
 whisper:
   service_url: http://localhost:9001

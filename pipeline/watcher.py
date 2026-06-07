@@ -1,8 +1,7 @@
 """File watcher — monitors 1_input/ and runs the full pipeline for each new file.
 
 On startup: scans 1_input/ to recover from restart without move-out/back workarounds.
-On new file: strips quarantine attrs, then runs preprocessing → transcription → summary
-             in a thread pool so the watcher loop stays responsive.
+On new file: strips quarantine attrs, then runs pipeline stages via runner.execute().
 On error: renames file to .failed so it is skipped on next restart.
 """
 import logging
@@ -15,7 +14,7 @@ from watchdog.observers import Observer
 
 from pipeline.config import load, workspace
 from pipeline.mq.publisher import EventPublisher
-from pipeline import stages
+from pipeline import runner
 
 log = logging.getLogger(__name__)
 
@@ -23,32 +22,26 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipeline")
 
 
 def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
-    """Run all stages for a single file. Called in a worker thread."""
+    """Run all configured stages for a single file. Called in a worker thread."""
     stem = path.stem
     ws = Path(cfg["pipeline"]["workspace_dir"])
-    output_dir = ws / "3_output"
-    archive_dir = ws / "4_archive"
+
+    ctx = {
+        "stem": stem,
+        "input_path": path,
+        "workspace": ws,
+        "output_dir": ws / "3_output",
+        "audio_path": ws / "2_processing" / f"{stem}_clean.wav",
+        "srt_path": ws / "3_output" / f"{stem}.srt",
+    }
 
     try:
-        # Stage 1: preprocessing
-        audio_path = stages.preprocess(path, ws, cfg)
-        pub.publish("stage.completed", stem, stage="preprocessing", filename=path.name)
+        ctx = runner.execute(cfg, ctx, pub)
 
-        # Stage 2: transcription
-        srt_path = stages.transcribe(audio_path, stem, output_dir, cfg)
-        pub.publish("stage.completed", stem, stage="transcription", output_path=str(srt_path))
-
-        if cfg.get("pipeline", {}).get("llm_correction", False):
-            stages.correct_srt(stem, srt_path, cfg)
-
-        # Stage 3: summary
-        stages.summarize(stem, srt_path, output_dir, cfg)
-        pub.publish("stage.completed", stem, stage="summary")
-
-        # Done — move input to archive
+        archive_dir = ws / "4_archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
         path.rename(archive_dir / path.name)
-        pub.publish("task.completed", stem, output_path=str(srt_path))
+        pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
         log.info("DONE %s", stem)
 
     except Exception as exc:

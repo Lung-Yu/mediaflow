@@ -18,6 +18,8 @@ from pathlib import Path
 import httpx
 import ollama as _ollama
 
+from pipeline.prompts import PROMPTS
+
 log = logging.getLogger(__name__)
 
 
@@ -190,12 +192,7 @@ def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     for i in range(0, len(blocks), CHUNK):
         chunk = blocks[i:i + CHUNK]
         lines_in = "\n".join(f"{j}|{b['text']}" for j, b in enumerate(chunk))
-        raw = _ollama_chat(model, (
-            "以下是Whisper語音辨識輸出（繁體中文），格式為「序號|文字」。\n"
-            "請修正同音字錯誤和辨識錯誤，保持序號和總行數不變。\n"
-            "直接輸出修正後的「序號|文字」格式，不要其他說明：\n\n"
-            + lines_in
-        ))
+        raw = _ollama_chat(model, PROMPTS["correct_srt"]["base"] + "\n" + lines_in)
 
         corrected_map: dict[int, str] = {}
         for line in raw.splitlines():
@@ -251,54 +248,17 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
     full_text = "\n".join(b["text"] for b in blocks)
     ts_lines = [f"[{_start_hms(b['time'])}] {b['text']}" for b in blocks]
     rtype = _detect_recording_type(stem, cfg)
+    p = PROMPTS["summarize"][rtype]
 
     # A. Overall summary
-    if rtype == "course":
-        overview_prompt = (
-            "以下是一堂課的逐字稿。請用3到5句話摘要本課教學內容："
-            "講解了哪些概念或技能、有哪些練習或範例、學習者應記住的重點。"
-            "使用繁體中文，直接輸出摘要：\n\n"
-        )
-    elif rtype == "meeting":
-        overview_prompt = (
-            "以下是一場會議的逐字稿。請用3到5句話摘要："
-            "會議目的、主要討論點、最終決議或待辦行動項目。"
-            "使用繁體中文，直接輸出摘要：\n\n"
-        )
-    else:
-        overview_prompt = (
-            "以下是一段錄音的逐字稿，請生成3到5句話的整體摘要，"
-            "使用繁體中文，不要加標題，直接輸出摘要內容：\n\n"
-        )
-    overview = _ollama_chat(model, overview_prompt + full_text[:6000])
+    overview = _ollama_chat(model, p["overview"] + "\n" + full_text[:6000])
 
-    # B. Key moments (one chunked call for large files)
-    if rtype == "course":
-        moments_prompt_tmpl = (
-            "以下是一段課程字幕片段（格式：[HH:MM:SS] 內容）。\n"
-            "請找出最多2個教學關鍵時刻（重要概念講解、練習開始、核心結論），"
-            "每個輸出一行，格式：[HH:MM:SS] 描述（繁體中文）\n"
-            "只輸出符合格式的行，不要其他說明：\n\n"
-        )
-    elif rtype == "meeting":
-        moments_prompt_tmpl = (
-            "以下是一段會議字幕片段（格式：[HH:MM:SS] 內容）。\n"
-            "請找出最多2個重要時刻（決策確認、行動項目、重要發現），"
-            "每個輸出一行，格式：[HH:MM:SS] 描述（繁體中文）\n"
-            "只輸出符合格式的行，不要其他說明：\n\n"
-        )
-    else:
-        moments_prompt_tmpl = (
-            "以下是一段字幕片段（格式：[HH:MM:SS] 內容）。\n"
-            "請找出最多2個重要時刻，每個輸出一行，格式：[HH:MM:SS] 描述（繁體中文）\n"
-            "只輸出符合格式的行，不要其他說明：\n\n"
-        )
-
+    # B. Key moments (chunked for large files)
     chunk_size = 150
     all_moments: list[dict] = []
     for i in range(0, len(ts_lines), chunk_size):
         chunk = "\n".join(ts_lines[i:i + chunk_size])
-        raw = _ollama_chat(model, moments_prompt_tmpl + chunk)
+        raw = _ollama_chat(model, p["moments"] + "\n" + chunk)
         for line in raw.splitlines():
             m = re.match(r"\[?(\d{2}:\d{2}:\d{2})\]?\s*(.+)", line.strip())
             if m:
@@ -319,22 +279,7 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
 
     # C. Topic segments (sampled view)
     sampled = ts_lines[::12][:200]
-    if rtype == "course":
-        topics_prompt = (
-            "以下是一堂課的逐字稿摘錄。請列出2到6個教學主題或單元，"
-            "每個主題用4到10個字概括，每行只寫一個主題名稱，不要編號：\n\n"
-        )
-    elif rtype == "meeting":
-        topics_prompt = (
-            "以下是一場會議的逐字稿摘錄。請列出2到6個討論議題或議程項目，"
-            "每個議題用4到10個字概括，每行只寫一個議題名稱，不要編號：\n\n"
-        )
-    else:
-        topics_prompt = (
-            "以下是一段錄音的逐字稿摘錄。請列出2到6個主要主題，"
-            "每個主題用4到10個字概括，每行只寫一個主題名稱，不要編號：\n\n"
-        )
-    topics_raw = _ollama_chat(model, topics_prompt + "\n".join(sampled))
+    topics_raw = _ollama_chat(model, p["topics"] + "\n" + "\n".join(sampled))
     topic_names = [
         ln.strip(" \t•·-–：:.,。，")
         for ln in topics_raw.splitlines()
