@@ -1,7 +1,18 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from api import db
+from api.reconcile import reconcile
 from api.routes import events, files, status
 
-app = FastAPI(title="mediaflow API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.init()
+    await reconcile()  # fill any gaps from missed events while API was down
+    yield
+
+
+app = FastAPI(title="mediaflow API", lifespan=lifespan)
 
 app.include_router(events.router)
 app.include_router(files.router)
