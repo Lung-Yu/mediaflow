@@ -1,7 +1,8 @@
-"""SRT file access — list, view, and search transcripts."""
+"""SRT file access — list, view, search transcripts, speaker labels."""
+import json
 import os
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from api import srt as srtlib
 
@@ -58,3 +59,47 @@ def get_segments(stem: str, q: str = Query(default="")):
         }
         for s in segments
     ]
+
+
+# ── Speaker names ─────────────────────────────────────────────
+@router.get("/{stem}/speaker-names")
+def get_speaker_names(stem: str):
+    """Return detected speakers + any saved display names for this file."""
+    names_path = OUTPUT_DIR / f"{stem}_speaker_names.json"
+    diar_path = OUTPUT_DIR / f"{stem}_diarization.json"
+
+    names: dict = {}
+    if names_path.exists():
+        try:
+            names = json.loads(names_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    speakers: list = []
+    counts: dict = {}
+    if diar_path.exists():
+        try:
+            diar = json.loads(diar_path.read_text(encoding="utf-8"))
+            seen: set = set()
+            for s in diar:
+                sp = s.get("speaker", "")
+                if not sp:
+                    continue
+                if sp not in seen:
+                    seen.add(sp)
+                    speakers.append(sp)
+                counts[sp] = counts.get(sp, 0) + 1
+            speakers.sort()
+        except Exception:
+            pass
+
+    return {"speakers": speakers, "counts": counts, "names": names}
+
+
+@router.post("/{stem}/speaker-names")
+def set_speaker_names(stem: str, body: dict = Body(...)):
+    """Save display name mapping for this file's speakers."""
+    names_path = OUTPUT_DIR / f"{stem}_speaker_names.json"
+    clean = {k: v for k, v in body.items() if isinstance(v, str) and v.strip()}
+    names_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"saved": len(clean)}

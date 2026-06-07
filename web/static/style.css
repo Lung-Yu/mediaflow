@@ -393,3 +393,87 @@ a.srt-row:hover { border-color: var(--amber-dim); }
   transition: color var(--transition);
 }
 .footer-back:hover { color: var(--amber); }
+
+/* ── Speaker label panel ─────────────────────────────────── */
+.speaker-panel {
+  margin-bottom: 1rem;
+  padding: .7rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.speaker-panel-title {
+  font-size: .72rem;
+  color: var(--text-dim);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  outline: none;
+}
+.speaker-panel-title::-webkit-details-marker { display: none; }
+.speaker-panel[open] .speaker-panel-title { margin-bottom: .75rem; }
+
+.speaker-rows {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.speaker-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.speaker-id {
+  font-size: .72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 88px;
+}
+
+.speaker-count {
+  font-size: .66rem;
+  color: var(--text-dim);
+  min-width: 40px;
+}
+
+.speaker-name-input {
+  font-family: var(--mono);
+  font-size: .82rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: .3rem .7rem;
+  border-radius: var(--radius);
+  width: 180px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.speaker-name-input:focus   { border-color: var(--amber-dim); }
+.speaker-name-input::placeholder { color: var(--text-dim); }
+
+.speaker-panel-footer { margin-top: .6rem; }
+
+.speaker-save-btn {
+  font-family: var(--mono);
+  font-size: .78rem;
+  background: transparent;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber);
+  padding: .3rem .85rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+  letter-spacing: .04em;
+}
+.speaker-save-btn:hover {
+  background: var(--amber-glow);
+  border-color: var(--amber);
+}
+
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator { display: inline; color: var(--text-dim); }

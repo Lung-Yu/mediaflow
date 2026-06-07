@@ -37,6 +37,35 @@
       </form>
     </div>
 
+    {# ── Speaker label panel (only when diarization was used) #}
+    {% if speaker_data and speaker_data.speakers %}
+    <details class="speaker-panel" open>
+      <summary class="speaker-panel-title">說話者標籤</summary>
+      <form class="speaker-rows"
+            hx-post="/srts/{{ stem }}/speaker-names"
+            hx-target="#transcript"
+            hx-swap="innerHTML">
+        {% for sp in speaker_data.speakers %}
+        <div class="speaker-row">
+          <span class="speaker-id">{{ sp }}</span>
+          <span class="speaker-count">{{ speaker_data.counts.get(sp, '') }}</span>
+          <input class="speaker-name-input"
+                 type="text"
+                 name="{{ sp }}"
+                 value="{{ speaker_data.names.get(sp, '') }}"
+                 placeholder="輸入顯示名稱…">
+        </div>
+        {% endfor %}
+        <div class="speaker-panel-footer">
+          <button class="speaker-save-btn" type="submit">
+            儲存
+            <span class="htmx-indicator"> …</span>
+          </button>
+        </div>
+      </form>
+    </details>
+    {% endif %}
+
     {# ── Transcript ────────────────────────────────────────── #}
     <div id="transcript">
       {% include "partials/srt_rows.html" %}
