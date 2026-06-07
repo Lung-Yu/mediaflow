@@ -224,6 +224,77 @@ def _assign_speaker(block_start: float, block_end: float, diar_segs: list) -> "s
     return assigned
 
 
+def diarize(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
+    """Diarize audio via local service and enrich SRT with speaker labels.
+
+    Passes Whisper segment timestamps to the service when {stem}_segments.json
+    exists — avoids redundant VAD and uses Whisper's more accurate boundaries.
+    Saves {stem}_diarization.json. Never raises.
+    """
+    diar_path = srt_path.parent / f"{stem}_diarization.json"
+    d_cfg = cfg.get("diarization", {})
+    service_url = d_cfg.get("service_url", "http://localhost:9003").rstrip("/")
+    speaker_fmt = d_cfg.get("speaker_format", "【{speaker}】")
+    speaker_names = d_cfg.get("speaker_names", {})
+    num_speakers = d_cfg.get("num_speakers", None)
+
+    if not audio_path.exists():
+        log.warning("diarize: clean WAV not found for %s — skipping", stem)
+        return diar_path
+
+    seg_path = srt_path.parent / f"{stem}_segments.json"
+    whisper_segs = None
+    if seg_path.exists():
+        raw = json.loads(seg_path.read_text(encoding="utf-8"))
+        whisper_segs = [{"start": s["start"], "end": s["end"]} for s in raw]
+
+    try:
+        params = {"num_speakers": num_speakers} if num_speakers else {}
+        data = {"segments": json.dumps(whisper_segs)} if whisper_segs else {}
+        with open(audio_path, "rb") as f:
+            resp = httpx.post(
+                f"{service_url}/diarize",
+                files={"audio": (audio_path.name, f)},
+                params=params,
+                data=data,
+                timeout=600.0,
+            )
+        resp.raise_for_status()
+    except httpx.ConnectError:
+        log.warning("diarize: cannot reach service at %s — skipping", service_url)
+        return diar_path
+    except httpx.HTTPStatusError as exc:
+        log.warning("diarize: service error %d — skipping", exc.response.status_code)
+        return diar_path
+
+    diar_segs = resp.json().get("segments", [])
+    diar_path.write_text(json.dumps(diar_segs, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if not diar_segs:
+        log.info("diarize: no speaker segments returned for %s", stem)
+        return diar_path
+
+    srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = _parse_srt_blocks(srt_content)
+    lines = []
+    for i, block in enumerate(blocks):
+        raw_speaker = _assign_speaker(
+            _start_seconds(block["time"]),
+            _end_seconds(block["time"]),
+            diar_segs,
+        )
+        if raw_speaker:
+            display = speaker_names.get(raw_speaker, raw_speaker)
+            text = speaker_fmt.format(speaker=display) + block["text"]
+        else:
+            text = block["text"]
+        lines.append(f"{i + 1}\n{block['time']}\n{text}\n")
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+
+    log.info("diarize done: %s (%d speaker segments)", stem, len(diar_segs))
+    return diar_path
+
+
 # ── Stage 3: Summarization ──────────────────────────────────────────────────
 
 def _parse_srt_blocks(srt_content: str) -> list[dict]:
