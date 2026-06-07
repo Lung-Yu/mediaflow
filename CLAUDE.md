@@ -291,6 +291,43 @@ pip install -r requirements.txt
 
 Always activate venv before running any Python in this project.
 
+### Container Runtime: Docker or Podman
+
+Both `docker compose` and `podman compose` work with the same `docker-compose.yml`.
+
+**Docker (default)**
+```bash
+# Comes with Docker Desktop. No extra setup.
+docker compose up -d
+docker compose logs -f api
+docker compose down
+```
+
+**Podman**
+```bash
+# Install
+brew install podman podman-compose
+
+# One-time machine init (rootless VM on macOS)
+podman machine init
+podman machine start
+
+# Use podman-compose as a drop-in replacement
+podman-compose up -d
+podman-compose logs -f api
+podman-compose down
+
+# Or use podman's built-in compose (>= Podman 4.7)
+podman compose up -d
+```
+
+Key differences to be aware of:
+- Podman is rootless by default — volume permissions are handled differently. If the `api` container can't write to `./data/`, check that the host `data/` dir is writable by the current user (uid mapping).
+- `podman-compose` does not support all Docker Compose v3 features; this project only uses `build`, `volumes`, `ports`, `depends_on`, `healthcheck` — all supported.
+- Socket path differs: if anything in the project tries to talk to the Docker socket directly, point it at `$XDG_RUNTIME_DIR/podman/podman.sock` instead.
+
+`scripts/start-services.sh` calls `docker compose up -d` — change to `podman compose up -d` if running under Podman.
+
 ### Useful Commands
 
 ```bash
@@ -310,6 +347,97 @@ curl -X POST http://localhost:8080/events/stage-complete \
 
 # Watch Redis stream live
 redis-cli XREAD COUNT 10 STREAMS mediaflow:events 0
+
+# Rebuild after code change (Docker)
+docker compose build api && docker compose up -d api
+
+# Rebuild (Podman)
+podman compose build api && podman compose up -d api
+```
+
+---
+
+## Version Control (Trunk-Based Development)
+
+This project uses **trunk-based development**: `main` is the single integration branch, always deployable.
+
+### Rules
+
+| Rule | Detail |
+|------|--------|
+| **`main` is always green** | Never commit broken code directly. If a change is large, use a short-lived branch. |
+| **Short-lived branches only** | Branch off `main`, merge back within 1–2 days. Delete after merge. |
+| **No long-lived feature branches** | All work lands on `main` regularly. Use feature flags in config if a half-done feature must be committed. |
+| **Small, atomic commits** | One logical change per commit. Prefer many small commits over one large one. |
+| **Do not push unless asked** | The user explicitly confirms each push. Never `git push` autonomously. |
+| **No force-push to `main`** | Non-negotiable. |
+
+### Branch Naming
+
+```
+feat/p1-4-incremental-rerun
+fix/whisper-timeout-handling
+chore/update-deps
+```
+
+### Commit Message Format
+
+```
+<type>(<scope>): <one-line summary>
+
+type: feat | fix | chore | docs | refactor | test
+scope: pipeline | api | web | stages | consumer (optional)
+
+Examples:
+  feat(stages): add segment verification against whisper-large-v3
+  fix(consumer): handle Redis NOGROUP error on first startup
+  chore: bump ollama to 0.4
+  docs: update CLAUDE.md with diarization notes
+```
+
+### Workflow for a New Feature
+
+```bash
+# 1. Start from a clean main
+git checkout main && git pull
+
+# 2. Short-lived branch
+git checkout -b feat/p1-4-incremental-rerun
+
+# 3. Small commits as you go
+git add pipeline/rerun.py pipeline/stages.py
+git commit -m "feat(pipeline): add --from-stage flag to skip completed stages"
+
+# 4. Keep branch up to date if main moves (rebase preferred over merge)
+git fetch origin && git rebase origin/main
+
+# 5. Merge back (fast-forward when possible, no merge commits for small changes)
+git checkout main
+git merge --ff-only feat/p1-4-incremental-rerun
+
+# 6. Delete branch
+git branch -d feat/p1-4-incremental-rerun
+
+# 7. Push only when user confirms
+# git push origin main
+```
+
+### When to Use a Branch vs Direct Commit to Main
+
+| Situation | Approach |
+|-----------|----------|
+| Single-file fix, < 30 lines | Direct commit to `main` |
+| Multi-file feature, can be done in one session | Direct commit to `main` (keep it atomic) |
+| Multi-session work or touches > 3 files | Short-lived branch |
+| Experimental (might be reverted) | Short-lived branch |
+
+### Tagging Releases
+
+There are no formal releases yet. When the pipeline is stable end-to-end (all Phase 0–2 working in production), tag `v0.1.0`:
+
+```bash
+git tag -a v0.1.0 -m "Phase 0-2 complete: Docker + pipeline + dashboard + SRT browser"
+# git push origin v0.1.0   # only when user confirms
 ```
 
 ---
