@@ -1,0 +1,118 @@
+{# HTMX partial — polled every 5 s to refresh pipeline state #}
+
+{# ── Summary bar ───────────────────────────────── #}
+<div class="summary-bar">
+  <div class="summary-cell processing">
+    <span class="label">Processing</span>
+    <span class="value">{{ processing|length }}</span>
+  </div>
+  <div class="summary-cell queued">
+    <span class="label">Queued</span>
+    <span class="value">{{ queue|length }}</span>
+  </div>
+  <div class="summary-cell completed">
+    <span class="label">Completed</span>
+    <span class="value">{{ recent|length }}</span>
+  </div>
+  <div class="summary-cell failed">
+    <span class="label">Failed</span>
+    <span class="value">{{ failed|length }}</span>
+  </div>
+</div>
+
+{# ── Now Processing ─────────────────────────────── #}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Now Processing</span>
+    {% if processing %}
+      <span class="section-count processing-count">{{ processing|length }}</span>
+    {% endif %}
+  </div>
+  <div class="task-list">
+    {% for t in processing %}
+    <div class="task-row is-processing">
+      <span class="dot dot-processing"></span>
+      <span class="task-stem">{{ t.stem }}</span>
+      <div class="stage-track">
+        {% set stages = ['preprocessing','transcription','verification','summary'] %}
+        {% for s in stages %}
+          {% if t.current_stage == s %}
+            <div class="stage-pip current" title="{{ s }}"></div>
+          {% elif stages.index(s) < stages.index(t.current_stage or '') %}
+            <div class="stage-pip done" title="{{ s }}"></div>
+          {% else %}
+            <div class="stage-pip" title="{{ s }}"></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <span class="task-time">{{ t.current_stage or '—' }}</span>
+    </div>
+    {% else %}
+    <div class="empty">No active tasks</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Queue ──────────────────────────────────────── #}
+{% if queue %}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Queue</span>
+    <span class="section-count queued-count">{{ queue|length }}</span>
+  </div>
+  <div class="task-list">
+    {% for t in queue %}
+    <div class="task-row">
+      <span class="dot dot-queued"></span>
+      <span class="task-stem">{{ t.stem }}</span>
+      <span class="task-stage"><span class="stage-label">waiting</span></span>
+      <span class="task-time">{{ t.filename or '—' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Recent Completions ─────────────────────────── #}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Recent Completions</span>
+    {% if recent %}
+      <span class="section-count completed-count">{{ recent|length }}</span>
+    {% endif %}
+  </div>
+  <div class="task-list">
+    {% for t in recent %}
+    <div class="task-row">
+      <span class="dot dot-completed"></span>
+      <span class="task-stem">{{ t.stem }}</span>
+      <span class="task-stage"><span class="stage-label">done</span></span>
+      <span class="task-time">
+        {% if t.duration_sec %}{{ "%.0f"|format(t.duration_sec // 60) }}m{% endif %}
+      </span>
+    </div>
+    {% else %}
+    <div class="empty">No completions yet</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Failures ───────────────────────────────────── #}
+{% if failed %}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">Failed</span>
+    <span class="section-count failed-count">{{ failed|length }}</span>
+  </div>
+  <div class="task-list">
+    {% for t in failed %}
+    <div class="task-row">
+      <span class="dot dot-failed"></span>
+      <span class="task-stem">{{ t.stem }}</span>
+      <span class="task-stage"><span class="stage-label">{{ t.current_stage or '—' }}</span></span>
+      <span class="task-time" title="{{ t.error_msg or '' }}">error</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

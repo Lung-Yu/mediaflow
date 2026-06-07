@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mediaflow</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="layout">
+
+    <header>
+      <div class="wordmark">media<span>flow</span></div>
+      <div class="header-meta">
+        <span><span class="live-dot"></span>live</span>
+        <span id="live-clock">—</span>
+      </div>
+    </header>
+
+    {# Polled region — HTMX refreshes every 5 s #}
+    <div id="status-region"
+         hx-get="/partial/status"
+         hx-trigger="every 5s"
+         hx-swap="innerHTML">
+      {% include "partials/status.html" %}
+    </div>
+
+    <footer>
+      <span>mediaflow pipeline monitor</span>
+      <span>auto-refresh every 5 s</span>
+    </footer>
+
+  </div>
+
+  <script>
+    function tick() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      document.getElementById('live-clock').textContent =
+        `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} `
+        + `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
