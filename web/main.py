@@ -24,14 +24,14 @@ async def _fetch_status() -> dict:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     data = await _fetch_status()
-    return templates.TemplateResponse("dashboard.html", {"request": request, **data})
+    return templates.TemplateResponse(request=request, name="dashboard.html", context=data)
 
 
 @app.get("/partial/status", response_class=HTMLResponse)
 async def status_partial(request: Request):
     """HTMX polling target — returns only the inner content, not the full page."""
     data = await _fetch_status()
-    return templates.TemplateResponse("partials/status.html", {"request": request, **data})
+    return templates.TemplateResponse(request=request, name="partials/status.html", context=data)
 
 
 @app.get("/health")

@@ -24,9 +24,11 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DB_PATH=/app/data/pipeline.db
+      - WORKSPACE_DIR=/workspace
     volumes:
-      - ./workspace:/workspace:ro      # read-only SRT access (same-machine deploy)
-      - ./pipeline.db:/app/pipeline.db  # shared state DB
+      - ./workspace:/workspace:ro   # read-only SRT access (same-machine deploy)
+      - ./data:/app/data            # writable dir for pipeline.db
     ports:
       - "8080:8080"
     depends_on:
