@@ -210,6 +210,20 @@ def verify_segments(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> P
     return srt_path
 
 
+# ── Stage 2c: Diarization helpers ───────────────────────────────────────────
+
+def _assign_speaker(block_start: float, block_end: float, diar_segs: list) -> "str | None":
+    """Return the diarization speaker with maximum overlap in [block_start, block_end]."""
+    max_overlap = 0.0
+    assigned = None
+    for seg in diar_segs:
+        overlap = min(block_end, seg["end"]) - max(block_start, seg["start"])
+        if overlap > max_overlap:
+            max_overlap = overlap
+            assigned = seg["speaker"]
+    return assigned
+
+
 # ── Stage 3: Summarization ──────────────────────────────────────────────────
 
 def _parse_srt_blocks(srt_content: str) -> list[dict]:
