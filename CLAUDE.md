@@ -228,17 +228,10 @@ CREATE TABLE events (
 | P2-2 | SRT browser + full-text search | `web/templates/srts.html`, `srt_viewer.html` |
 | P2-3 | Webhook notification on completion | `api/webhook.py` |
 | —    | Full pipeline stages | `pipeline/stages.py` |
+| P1-4 | Stage incremental re-run (`--from-stage`) | `pipeline/rerun.py` |
+| P5   | Smoke test + fixture audio | `tests/fixtures/test-speech.m4a`, `tests/run-pipeline-test.sh` |
 
 ### ❌ Not Yet Implemented
-
-**P1-4 — Stage incremental re-run (`--from-stage`)**
-
-Allow re-running from a specific stage without re-processing earlier stages. Useful when tuning Ollama prompts (skip FFmpeg + Whisper, only redo `summarize()`).
-
-Implementation sketch:
-- Add CLI arg to `pipeline/watcher.py` or a new `pipeline/rerun.py` script
-- Check which intermediate files exist in `2_processing/` and `3_output/`
-- Skip stages whose output already exists, start from the requested stage
 
 **Phase 3 — Summary quality tuning**
 
@@ -253,9 +246,8 @@ The summarize() stage in `pipeline/stages.py` works but prompts are first-draft 
 - **Speaker diarization**: pyannote.audio (needs HuggingFace token). Reference: `automate/pipeline/modules/diarizer.py`.
 - **Chapter detection**: insert chapter markers based on silence gaps and semantic topic boundaries.
 
-**Phase 5 — Repo quality**
+**Phase 5 — Remaining**
 
-- Short test audio file (10s) + integration test that runs the full pipeline and asserts SRT format
 - Mermaid architecture diagram in README
 
 ---
@@ -357,7 +349,7 @@ Waiting for pipeline (timeout: 300s) ...
   ✓  SRT transcript (2048 bytes)
   ✓  Summary markdown (891 bytes)
   ✓  Summary JSON (643 bytes)
-  ✓  Processed WAV (7340032 bytes)
+  ✓  Processed WAV (7340032 bytes)  [workspace/2_processing/]
   ✓  Archived original (323584 bytes)
   ✓  SRT has content (42 lines)
 
@@ -385,6 +377,13 @@ curl -X POST http://localhost:8080/events/stage-complete \
 
 # Watch Redis stream live
 redis-cli XREAD COUNT 10 STREAMS mediaflow:events 0
+
+# Re-run summary stage only (tune Ollama prompts without re-running FFmpeg/Whisper)
+source venv/bin/activate
+python -m pipeline.rerun --stem lesson01 --from-stage summary
+
+# Re-run from transcription (WAV exists in 2_processing/, skip FFmpeg)
+python -m pipeline.rerun --stem lesson01 --from-stage transcription
 
 # Rebuild after code change (Docker)
 docker compose build api && docker compose up -d api

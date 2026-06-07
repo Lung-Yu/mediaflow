@@ -42,6 +42,8 @@ fi
 rm -f "workspace/1_input/${STEM}.m4a"
 rm -f "workspace/1_input/${STEM}.m4a.failed"
 rm -f "$OUTPUT_SRT" "$OUTPUT_MD"
+rm -f "workspace/3_output/${STEM}_summary.json"
+rm -f "workspace/2_processing/${STEM}_clean.wav"
 rm -f "$ARCHIVE_FILE"
 
 # ── Drop file into pipeline ───────────────────────────────────────────────────
@@ -111,7 +113,7 @@ check() {
 check "SRT transcript"     "$OUTPUT_SRT"
 check "Summary markdown"   "$OUTPUT_MD"
 check "Summary JSON"       "workspace/3_output/${STEM}_summary.json"
-check "Processed WAV"      "workspace/3_output/${STEM}_clean.wav"
+check "Processed WAV"      "workspace/2_processing/${STEM}_clean.wav"
 check "Archived original"  "$ARCHIVE_FILE"
 
 # SRT content sanity check
