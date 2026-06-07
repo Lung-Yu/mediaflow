@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Config (use config.yaml.example as template)
+config.yaml
+.env
+
+# Runtime state
+pipeline.db
+*.db-shm
+*.db-wal
+
+# Workspace (large files, not versioned)
+workspace/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/

@@ -1,0 +1,31 @@
+# mediaflow configuration
+# Copy to config.yaml and fill in values
+
+pipeline:
+  workspace_dir: ./workspace       # 1_input, 3_output, 4_archive subdirs
+  supported_formats:
+    - .mp4
+    - .m4a
+    - .mp3
+    - .wav
+    - .flac
+
+whisper:
+  service_url: http://localhost:9001
+  language: zh
+
+ollama:
+  service_url: http://localhost:11434
+  model: llama3
+
+redis:
+  host: localhost
+  port: 6379
+  stream_key: mediaflow:events
+  consumer_group: api-consumers
+
+api:
+  event_url: http://localhost:8080/events/stage-complete  # where pipeline pushes events
+
+notification:
+  webhook_url: ""   # optional: POST on task completion (n8n, Slack, ntfy, etc.)
