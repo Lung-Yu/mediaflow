@@ -29,6 +29,31 @@ Audio recording pipeline that converts recordings into transcripts and structure
 
 **Event flow**: pipeline → Redis xadd → api/mq/consumer.py reads via XREADGROUP → writes to pipeline.db (SQLite) → web polls /status/ via HTMX.
 
+```mermaid
+flowchart TD
+    IN[workspace/1_input/] -->|watchdog| W[watcher.py\nThreadPoolExecutor]
+    W --> RUN[runner.execute]
+
+    subgraph pipeline [Pipeline stages — config.yaml]
+        RUN --> PRE[preprocess\nFFmpeg 9-stage filter]
+        PRE --> TR[transcribe\nWhisper :9001]
+        TR -->|segments.json| VER[verify_segments ◇\nWhisper-large :9001]
+        VER --> COR[correct_srt ◇\nOllama :11434]
+        TR --> COR
+        COR --> SUM[summarize\nOllama :11434]
+        TR --> SUM
+    end
+
+    SUM --> OUT[workspace/3_output/\n.srt  _summary.md  _summary.json]
+    PRE --> ARC[workspace/4_archive/]
+
+    RUN -->|xadd| RED[(Redis Stream\nmediaflow:events)]
+    RED -->|XREADGROUP| CON[api/mq/consumer.py]
+    CON --> DB[(SQLite\npipeline.db)]
+    DB -->|HTMX poll| DASH[web :3000\ndashboard + SRT browser]
+```
+*◇ = disabled by default; enable in config.yaml*
+
 ---
 
 ## Workspace Layout
@@ -51,7 +76,7 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 pipeline/
   watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
   runner.py           — shared stage executor (ctx dict protocol, stage registry)
-  stages.py           — preprocess / transcribe / correct_srt / summarize (pure functions)
+  stages.py           — preprocess / transcribe / verify_segments / correct_srt / summarize (pure functions)
   prompts.py          — loader for pipeline/prompts.yaml
   prompts.yaml        — all Ollama prompt templates (git-tracked; edit to tune)
   rerun.py            — CLI: --stem / --from-stage re-run via runner.execute()
@@ -246,18 +271,15 @@ CREATE TABLE events (
 | P3   | Recording-type prompts + LLM correction | `pipeline/stages.py` (`correct_srt`, `_detect_recording_type`) |
 | —    | Prompt config management | `pipeline/prompts.yaml` + `pipeline/prompts.py` |
 | —    | DAG stage runner | `pipeline/runner.py` (shared by watcher + rerun) |
+| P4-1 | Segment verification (whisper-large-v3) | `pipeline/stages.py` (`verify_segments`), `runner.py` |
+| P5   | Mermaid architecture diagram | CLAUDE.md System Architecture |
 
 ### ❌ Not Yet Implemented
 
-**Phase 4 — Domain-specific features**
+**Phase 4 — Remaining domain features**
 
-- **Segment verification**: re-transcribe suspicious segments (low `avg_logprob`, high `no_speech_prob`) with whisper-large-v3 for cross-validation. Reference: `automate/pipeline/modules/verifier.py`.
 - **Speaker diarization**: pyannote.audio (needs HuggingFace token). Reference: `automate/pipeline/modules/diarizer.py`.
 - **Chapter detection**: insert chapter markers based on silence gaps and semantic topic boundaries.
-
-**Phase 5 — Remaining**
-
-- Mermaid architecture diagram in README
 
 ---
 

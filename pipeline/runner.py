@@ -26,10 +26,11 @@ from pipeline.mq.publisher import EventPublisher
 log = logging.getLogger(__name__)
 
 _DEFAULT_STAGES = [
-    {"id": "preprocess",  "enabled": True},
-    {"id": "transcribe",  "enabled": True},
-    {"id": "correct_srt", "enabled": False},
-    {"id": "summarize",   "enabled": True},
+    {"id": "preprocess",       "enabled": True},
+    {"id": "transcribe",       "enabled": True},
+    {"id": "verify_segments",  "enabled": False},
+    {"id": "correct_srt",      "enabled": False},
+    {"id": "summarize",        "enabled": True},
 ]
 
 
@@ -54,6 +55,18 @@ def _adapt_transcribe(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return {**ctx, "srt_path": srt_path}, {"output_path": str(srt_path)}
 
 
+def _adapt_verify_segments(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    audio_path = ctx["audio_path"]
+    srt_path = ctx["srt_path"]
+    if not audio_path.exists():
+        log.warning("verify_segments skipped: audio_path not found (%s)", audio_path)
+        return ctx, {}
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found for verification: {srt_path}")
+    stages.verify_segments(ctx["stem"], srt_path, audio_path, cfg)
+    return ctx, {}
+
+
 def _adapt_correct_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     if not srt_path.exists():
@@ -71,10 +84,11 @@ def _adapt_summarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
 
 
 STAGE_RUNNERS: dict[str, Callable] = {
-    "preprocess":  _adapt_preprocess,
-    "transcribe":  _adapt_transcribe,
-    "correct_srt": _adapt_correct_srt,
-    "summarize":   _adapt_summarize,
+    "preprocess":      _adapt_preprocess,
+    "transcribe":      _adapt_transcribe,
+    "verify_segments": _adapt_verify_segments,
+    "correct_srt":     _adapt_correct_srt,
+    "summarize":       _adapt_summarize,
 }
 
 

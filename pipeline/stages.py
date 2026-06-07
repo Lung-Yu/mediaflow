@@ -114,10 +114,99 @@ def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path
         ) from exc
 
     segments = resp.json().get("segments", [])
+    # Filter empty segments before saving — keeps positional alignment with the SRT.
+    nonempty = [s for s in segments if s.get("text", "").strip()]
     srt_content = _segments_to_srt(segments)
     srt_path.write_text(srt_content, encoding="utf-8")
 
-    log.info("transcribe done: %s → %s (%d segments)", stem, srt_path.name, len(segments))
+    seg_path = output_dir / f"{stem}_segments.json"
+    seg_path.write_text(json.dumps(nonempty, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    log.info("transcribe done: %s → %s (%d segments)", stem, srt_path.name, len(nonempty))
+    return srt_path
+
+
+# ── Stage 2b: Segment Verification ─────────────────────────────────────────
+
+def verify_segments(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
+    """Re-transcribe low-confidence segments using whisper-large-v3.
+
+    Reads {stem}_segments.json for avg_logprob / no_speech_prob per segment.
+    Clips suspicious segments with FFmpeg, POSTs to /transcribe_large,
+    and replaces text in the SRT when the result differs.
+    Never raises — falls back to original SRT on any failure.
+    """
+    seg_path = srt_path.parent / f"{stem}_segments.json"
+    if not seg_path.exists():
+        log.warning("verify_segments: no segments JSON for %s — run transcribe first", stem)
+        return srt_path
+    if not audio_path.exists():
+        log.warning("verify_segments: clean WAV not found for %s", stem)
+        return srt_path
+
+    segments = json.loads(seg_path.read_text(encoding="utf-8"))
+    v_cfg = cfg.get("verification", {})
+    logprob_thresh = float(v_cfg.get("logprob_threshold", -0.8))
+    no_speech_thresh = float(v_cfg.get("no_speech_threshold", 0.7))
+    service_url = cfg["whisper"]["service_url"].rstrip("/")
+    language = cfg["whisper"].get("language", "zh")
+
+    suspicious = [
+        i for i, s in enumerate(segments)
+        if s.get("avg_logprob", 0) < logprob_thresh
+        or s.get("no_speech_prob", 0) > no_speech_thresh
+    ]
+
+    if not suspicious:
+        log.info("verify_segments: all segments clean for %s", stem)
+        return srt_path
+
+    log.info("verify_segments: %d suspicious segments in %s", len(suspicious), stem)
+
+    corrections: dict[int, str] = {}
+    clip_path = audio_path.parent / f"{stem}_verify_clip.wav"
+
+    for idx in suspicious:
+        seg = segments[idx]
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(audio_path),
+                 "-ss", str(seg["start"]), "-to", str(seg["end"]),
+                 "-ar", "16000", "-ac", "1", str(clip_path)],
+                check=True, capture_output=True, timeout=30,
+            )
+            with open(clip_path, "rb") as f:
+                resp = httpx.post(
+                    f"{service_url}/transcribe_large",
+                    files={"audio": (clip_path.name, f)},
+                    params={"language": language},
+                    timeout=120.0,
+                )
+            resp.raise_for_status()
+            result = resp.json()
+            corrected = (result.get("text") or "").strip()
+            original = seg["text"].strip()
+            if corrected and corrected != original:
+                corrections[idx] = corrected
+                log.info("verify seg[%d]: %r → %r", idx, original[:40], corrected[:40])
+        except Exception as exc:
+            log.warning("verify seg[%d] failed: %s", idx, exc)
+
+    clip_path.unlink(missing_ok=True)
+
+    if not corrections:
+        log.info("verify_segments: no corrections applied for %s", stem)
+        return srt_path
+
+    # Positional alignment: nonempty_segments[i] ↔ SRT block[i]
+    blocks = _parse_srt_blocks(srt_path.read_text(encoding="utf-8", errors="replace"))
+    lines = []
+    for i, block in enumerate(blocks):
+        text = corrections.get(i, block["text"])
+        lines.append(f"{i + 1}\n{block['time']}\n{text}\n")
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+
+    log.info("verify_segments done: %s (%d corrections applied)", stem, len(corrections))
     return srt_path
 
 

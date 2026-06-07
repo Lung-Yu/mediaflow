@@ -15,10 +15,16 @@ pipeline:
       enabled: true
     - id: transcribe
       enabled: true
+    - id: verify_segments
+      enabled: false               # re-transcribe low-confidence segments with whisper-large-v3
     - id: correct_srt
-      enabled: false               # set true to run Ollama STT correction (~30s)
+      enabled: false               # Ollama homophone correction pass (~30s)
     - id: summarize
       enabled: true
+
+verification:
+  logprob_threshold: -0.8          # flag segments with avg_logprob below this
+  no_speech_threshold: 0.7         # flag segments with no_speech_prob above this
 
 whisper:
   service_url: http://localhost:9001
