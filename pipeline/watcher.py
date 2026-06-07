@@ -38,6 +38,9 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         srt_path = stages.transcribe(audio_path, stem, output_dir, cfg)
         pub.publish("stage.completed", stem, stage="transcription", output_path=str(srt_path))
 
+        if cfg.get("pipeline", {}).get("llm_correction", False):
+            stages.correct_srt(stem, srt_path, cfg)
+
         # Stage 3: summary
         stages.summarize(stem, srt_path, output_dir, cfg)
         pub.publish("stage.completed", stem, stage="summary")

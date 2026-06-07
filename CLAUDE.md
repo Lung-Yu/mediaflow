@@ -50,7 +50,7 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 ```
 pipeline/
   watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
-  stages.py           — preprocess / transcribe / summarize stage runners
+  stages.py           — preprocess / transcribe / correct_srt / summarize stage runners
   mq/publisher.py     — Redis xadd wrapper (EventPublisher)
   config.py           — load config.yaml + workspace path helper
 
@@ -105,6 +105,10 @@ api:
 
 notification:
   webhook_url: ""            # optional: n8n / ntfy / Slack
+
+# Phase 3 options (both default off/auto):
+#   pipeline.llm_correction: true   — Ollama correction pass after Whisper (~30s extra)
+#   pipeline.recording_type: course — use course-specific prompts (auto-detects from stem)
 ```
 
 ---
@@ -230,15 +234,9 @@ CREATE TABLE events (
 | —    | Full pipeline stages | `pipeline/stages.py` |
 | P1-4 | Stage incremental re-run (`--from-stage`) | `pipeline/rerun.py` |
 | P5   | Smoke test + fixture audio | `tests/fixtures/test-speech.m4a`, `tests/run-pipeline-test.sh` |
+| P3   | Recording-type prompts + LLM correction | `pipeline/stages.py` (`correct_srt`, `_detect_recording_type`) |
 
 ### ❌ Not Yet Implemented
-
-**Phase 3 — Summary quality tuning**
-
-The summarize() stage in `pipeline/stages.py` works but prompts are first-draft quality. Improvement areas:
-- Separate prompts for "course recording" vs "meeting/discussion" (detect via filename pattern or config flag)
-- LLM correction pass: after Whisper, run Ollama to fix STT errors in the SRT before summarising (see `automate/pipeline/modules/llm_corrector.py` in the reference pipeline for the approach)
-- Evaluation: pick 5–10 SRTs with known content, score coverage + hallucination rate
 
 **Phase 4 — Domain-specific features**
 

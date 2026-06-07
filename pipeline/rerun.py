@@ -58,6 +58,8 @@ def rerun(stem: str, from_stage: str, cfg: dict, pub: EventPublisher) -> None:
             raise FileNotFoundError(f"Processed WAV not found: {audio_path}")
         srt_path = stages.transcribe(audio_path, stem, output_dir, cfg)
         pub.publish("stage.completed", stem, stage="transcription", output_path=str(srt_path))
+        if cfg.get("pipeline", {}).get("llm_correction", False):
+            stages.correct_srt(stem, srt_path, cfg)
     else:
         srt_path = output_dir / f"{stem}.srt"
 
