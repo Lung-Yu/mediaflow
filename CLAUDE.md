@@ -328,6 +328,44 @@ Key differences to be aware of:
 
 `scripts/start-services.sh` calls `docker compose up -d` — change to `podman compose up -d` if running under Podman.
 
+### Smoke Test (End-to-End Verification)
+
+A 25-second Chinese speech fixture is included for testing:
+
+```
+tests/
+  fixtures/test-speech.m4a   — macOS TTS (Meijia voice), 25s, 316KB
+  run-pipeline-test.sh       — drops the file, polls for completion, checks outputs
+```
+
+**Expected content** (what Whisper should transcribe):
+> 這是一段測試音訊，用來驗證 mediaflow 的轉錄與摘要功能。本系統使用 Whisper 進行語音辨識，再由 Ollama 生成摘要。測試包含三個階段：音訊前處理、語音轉文字、以及摘要生成。如果你看到這段文字出現在 SRT 檔案中，代表整條 pipeline 運作正常。
+
+**Run the test:**
+```bash
+# Prerequisites: services + pipeline watcher must already be running
+bash tests/run-pipeline-test.sh
+```
+
+Expected output:
+```
+=== mediaflow smoke test ===
+Dropping tests/fixtures/test-speech.m4a into workspace/1_input/ ...
+Waiting for pipeline (timeout: 300s) ...
+✓  Pipeline completed (47s)
+
+  ✓  SRT transcript (2048 bytes)
+  ✓  Summary markdown (891 bytes)
+  ✓  Summary JSON (643 bytes)
+  ✓  Processed WAV (7340032 bytes)
+  ✓  Archived original (323584 bytes)
+  ✓  SRT has content (42 lines)
+
+=== Result: 6 passed, 0 failed ===
+```
+
+The test is idempotent — re-running cleans up previous outputs first.
+
 ### Useful Commands
 
 ```bash
