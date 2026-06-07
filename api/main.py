@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from api import db
 from api.reconcile import reconcile
 from api.routes import events, files, status
+from fastapi.middleware.cors import CORSMiddleware
 
 
 @asynccontextmanager
@@ -13,6 +14,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 app.include_router(events.router)
 app.include_router(files.router)

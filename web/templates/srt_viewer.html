@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mediaflow — {{ stem }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="layout">
+
+    <header>
+      <div class="wordmark">media<span>flow</span></div>
+      <nav class="header-nav">
+        <a href="/">dashboard</a>
+        <a href="/srts">transcripts</a>
+      </nav>
+    </header>
+
+    {# ── Viewer header ─────────────────────────────────────── #}
+    <div class="viewer-header">
+      <div class="viewer-stem">{{ stem }}</div>
+      <form class="search-form"
+            hx-get="/partial/srt/{{ stem }}"
+            hx-target="#transcript"
+            hx-trigger="input changed delay:300ms, search"
+            hx-include="[name='q']">
+        <input
+          class="search-input"
+          type="search"
+          name="q"
+          value="{{ q }}"
+          placeholder="search transcript…"
+          autocomplete="off"
+        >
+      </form>
+    </div>
+
+    {# ── Transcript ────────────────────────────────────────── #}
+    <div id="transcript">
+      {% include "partials/srt_rows.html" %}
+    </div>
+
+    <footer>
+      <a href="/srts" class="footer-back">← back to transcripts</a>
+      <span>{{ total }} segment{{ 's' if total != 1 }}</span>
+    </footer>
+
+  </div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import os
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -12,26 +12,55 @@ app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
 
-async def _fetch_status() -> dict:
+async def _get(path: str, **params) -> dict | list:
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            r = await client.get(f"{API_URL}/status/")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{API_URL}{path}", params=params)
             return r.json()
     except Exception:
-        return {"processing": [], "queue": [], "recent": [], "failed": []}
+        return {} if path.endswith("/") else []
 
 
+# ── Dashboard ────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    data = await _fetch_status()
-    return templates.TemplateResponse(request=request, name="dashboard.html", context=data)
+    data = await _get("/status/")
+    return templates.TemplateResponse(request=request, name="dashboard.html", context=data or {})
 
 
 @app.get("/partial/status", response_class=HTMLResponse)
 async def status_partial(request: Request):
-    """HTMX polling target — returns only the inner content, not the full page."""
-    data = await _fetch_status()
-    return templates.TemplateResponse(request=request, name="partials/status.html", context=data)
+    data = await _get("/status/")
+    return templates.TemplateResponse(request=request, name="partials/status.html", context=data or {})
+
+
+# ── SRT list ─────────────────────────────────────────────────
+@app.get("/srts", response_class=HTMLResponse)
+async def srt_list(request: Request):
+    files = await _get("/files/")
+    return templates.TemplateResponse(request=request, name="srts.html", context={"files": files})
+
+
+# ── SRT viewer ────────────────────────────────────────────────
+@app.get("/srts/{stem}", response_class=HTMLResponse)
+async def srt_viewer(request: Request, stem: str, q: str = ""):
+    segments = await _get(f"/files/{stem}/segments", q=q)
+    return templates.TemplateResponse(
+        request=request,
+        name="srt_viewer.html",
+        context={"stem": stem, "segments": segments, "q": q, "total": len(segments)},
+    )
+
+
+@app.get("/partial/srt/{stem}", response_class=HTMLResponse)
+async def srt_partial(request: Request, stem: str, q: str = Query(default="")):
+    """HTMX target — returns only the transcript rows."""
+    segments = await _get(f"/files/{stem}/segments", q=q)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/srt_rows.html",
+        context={"segments": segments, "q": q, "total": len(segments), "stem": stem},
+    )
 
 
 @app.get("/health")

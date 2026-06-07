@@ -1,0 +1,21 @@
+{# Transcript rows — returned by HTMX polling on search #}
+<div class="srt-meta">
+  {% if q %}
+    <span class="search-result-count">
+      {{ total }} match{{ 'es' if total != 1 }} for <em>{{ q }}</em>
+    </span>
+  {% else %}
+    <span class="search-result-count">{{ total }} segment{{ 's' if total != 1 }}</span>
+  {% endif %}
+</div>
+
+<div class="srt-body">
+  {% for seg in segments %}
+  <div class="srt-seg {% if q %}srt-match{% endif %}">
+    <span class="srt-ts">{{ seg.start[:8] }}</span>
+    <span class="srt-text">{{ seg.text | safe }}</span>
+  </div>
+  {% else %}
+  <div class="empty">No segments found{% if q %} for "{{ q }}"{% endif %}</div>
+  {% endfor %}
+</div>
