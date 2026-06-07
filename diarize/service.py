@@ -3,23 +3,24 @@
 Uses speechbrain ECAPA-TDNN (Apache 2.0) for speaker embeddings
 and sklearn AgglomerativeClustering. No HuggingFace token required.
 
-Segmentation:
-  - If 'segments' form field provided: use caller's timestamps (from Whisper)
-  - Otherwise: treat the whole file as one segment
-
+Segments the audio using caller-supplied timestamps (from Whisper) when provided.
+Extracts per-segment embeddings in one FFmpeg pass per segment, batched.
 Models cached in ~/.cache/speechbrain/ on first request (~200 MB).
 
 Usage:
   uvicorn diarize.service:app --port 9003
 """
+import asyncio
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import soundfile as sf
+import torch
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sklearn.cluster import AgglomerativeClustering
@@ -31,12 +32,7 @@ _encoder = None
 
 
 def _best_device() -> str:
-    try:
-        import torch
-        if torch.backends.mps.is_available():
-            return "mps"
-    except Exception:
-        pass
+    # MPS causes 'device_type' AttributeError in speechbrain ECAPA-TDNN — use CPU
     return "cpu"
 
 
@@ -54,42 +50,114 @@ def _get_encoder():
     return _encoder
 
 
-def _embed_clip(encoder, wav_path: Path) -> Optional[np.ndarray]:
-    """Return ECAPA-TDNN embedding for a WAV clip, or None on failure."""
+def _embed_segment(encoder, wav_path: Path, start: float, end: float) -> Optional[np.ndarray]:
+    """Extract embedding for one segment using FFmpeg clip + ECAPA-TDNN."""
+    duration = max(end - start, 0.1)
+    clip = wav_path.parent / f"_clip_{id(wav_path)}_{int(start*1000)}.wav"
     try:
-        import torch
-        signal, sr = sf.read(str(wav_path))
-        if signal.ndim > 1:
-            signal = signal.mean(axis=1)
-        if len(signal) < sr * 0.1:  # skip clips shorter than 100 ms
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(wav_path),
+             "-ss", str(max(0, start - 0.05)),
+             "-t", str(duration + 0.1),
+             "-ar", "16000", "-ac", "1", str(clip)],
+            check=True, capture_output=True, timeout=30,
+        )
+        sig, sr = sf.read(str(clip))
+        if sig.ndim > 1:
+            sig = sig.mean(axis=1)
+        if len(sig) < sr * 0.1:
             return None
-        tensor = torch.tensor(signal, dtype=torch.float32).unsqueeze(0)
+        tensor = torch.tensor(sig, dtype=torch.float32).unsqueeze(0)
         with torch.no_grad():
-            embedding = encoder.encode_batch(tensor)
-        return embedding.squeeze().cpu().numpy()
+            emb = encoder.encode_batch(tensor)
+        return emb.squeeze().cpu().numpy()
     except Exception:
         return None
+    finally:
+        clip.unlink(missing_ok=True)
 
 
 def _cluster(embeddings: list, num_speakers: Optional[int], threshold: float) -> list:
-    """Cluster embeddings; returns list of integer speaker labels."""
     if len(embeddings) == 1:
         return [0]
     X = normalize(np.array(embeddings))
     if num_speakers:
         model = AgglomerativeClustering(
-            n_clusters=num_speakers,
-            metric="cosine",
-            linkage="average",
+            n_clusters=num_speakers, metric="cosine", linkage="average"
         )
     else:
         model = AgglomerativeClustering(
-            n_clusters=None,
-            distance_threshold=threshold,
-            metric="cosine",
-            linkage="average",
+            n_clusters=None, distance_threshold=threshold,
+            metric="cosine", linkage="average"
         )
     return model.fit_predict(X).tolist()
+
+
+def _process_diarize(
+    wav_bytes: bytes,
+    segs_json: Optional[str],
+    num_speakers: Optional[int],
+    cluster_threshold: float,
+) -> dict:
+    """Blocking work — runs in a thread pool executor."""
+    encoder = _get_encoder()
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(wav_bytes)
+        wav_path = Path(tmp.name)
+
+    try:
+        if segs_json:
+            segs = json.loads(segs_json)
+        else:
+            info = sf.info(str(wav_path))
+            segs = [{"start": 0.0, "end": info.duration}]
+
+        # Sample segments for large files to avoid O(N) ffmpeg calls.
+        # With 885 Whisper segments, embed every 3rd segment (≈295 embeddings).
+        stride = max(1, len(segs) // 300)
+        sampled = segs[::stride]
+
+        embeddings = []
+        valid_idx = []
+        for i, seg in enumerate(sampled):
+            emb = _embed_segment(encoder, wav_path, seg["start"], seg["end"])
+            if emb is not None:
+                embeddings.append(emb)
+                valid_idx.append(i)
+
+        if not embeddings:
+            return {"segments": []}
+
+        labels = _cluster(embeddings, num_speakers, cluster_threshold)
+
+        # Build a speaker label → time mapping from sampled embeddings
+        sampled_with_labels = [
+            {"speaker": f"SPEAKER_{labels[j]:02d}",
+             "start": sampled[valid_idx[j]]["start"],
+             "end": sampled[valid_idx[j]]["end"]}
+            for j in range(len(labels))
+        ]
+
+        # Assign speaker to every original segment via nearest sampled segment
+        def _nearest_speaker(start: float) -> str:
+            if not sampled_with_labels:
+                return "SPEAKER_00"
+            return min(
+                sampled_with_labels,
+                key=lambda s: abs(s["start"] - start)
+            )["speaker"]
+
+        result = [
+            {"speaker": _nearest_speaker(seg["start"]),
+             "start": seg["start"],
+             "end": seg["end"]}
+            for seg in segs
+        ]
+        return {"segments": result}
+
+    finally:
+        wav_path.unlink(missing_ok=True)
 
 
 @app.get("/health")
@@ -98,60 +166,24 @@ def health():
 
 
 @app.post("/diarize")
-async def diarize(
+async def diarize_endpoint(
     audio: UploadFile = File(...),
     segments: Optional[str] = Form(None),
     num_speakers: Optional[int] = Query(None),
     cluster_threshold: float = Query(0.4),
 ):
-    encoder = _get_encoder()
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp.write(await audio.read())
-        wav_path = Path(tmp.name)
-
     try:
-        if segments:
-            segs = json.loads(segments)
-        else:
-            info = sf.info(str(wav_path))
-            segs = [{"start": 0.0, "end": info.duration}]
-
-        embeddings = []
-        valid_idx = []
-        clip_path = wav_path.parent / "diarize_clip.wav"
-
-        for i, seg in enumerate(segs):
-            try:
-                subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(wav_path),
-                     "-ss", str(seg["start"]), "-to", str(seg["end"]),
-                     "-ar", "16000", "-ac", "1", str(clip_path)],
-                    check=True, capture_output=True, timeout=30,
-                )
-            except subprocess.CalledProcessError:
-                continue
-            emb = _embed_clip(encoder, clip_path)
-            if emb is not None:
-                embeddings.append(emb)
-                valid_idx.append(i)
-
-        clip_path.unlink(missing_ok=True)
-
-        if not embeddings:
-            return JSONResponse({"segments": []})
-
-        labels = _cluster(embeddings, num_speakers, cluster_threshold)
-
-        result = [
-            {
-                "speaker": f"SPEAKER_{labels[label_idx]:02d}",
-                "start": segs[seg_idx]["start"],
-                "end": segs[seg_idx]["end"],
-            }
-            for label_idx, seg_idx in enumerate(valid_idx)
-        ]
-        return JSONResponse({"segments": result})
-
-    finally:
-        wav_path.unlink(missing_ok=True)
+        wav_bytes = await audio.read()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            _process_diarize,
+            wav_bytes,
+            segments,
+            num_speakers,
+            cluster_threshold,
+        )
+        return JSONResponse(result)
+    except Exception as exc:
+        print(f"[diarize] ERROR: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
