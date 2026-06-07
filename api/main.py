@@ -1,7 +1,9 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from api import db
 from api.reconcile import reconcile
+from api.mq import consumer
 from api.routes import events, files, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,7 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 async def lifespan(app: FastAPI):
     await db.init()
     await reconcile()  # fill any gaps from missed events while API was down
+    task = asyncio.create_task(consumer.run())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
