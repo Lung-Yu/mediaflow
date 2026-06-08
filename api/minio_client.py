@@ -9,6 +9,7 @@ if "boto3" not in dir():
 from botocore.exceptions import ClientError
 
 ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", ENDPOINT)
 ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "mediaflow")
 SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "changeme")
 SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
@@ -22,6 +23,7 @@ class MinIOClient:
     def __init__(
         self, endpoint: str, access_key: str, secret_key: str,
         secure: bool, input_bucket: str, output_bucket: str,
+        public_endpoint: str = "",
     ):
         scheme = "https" if secure else "http"
         self._s3 = boto3.client(  # boto3 is module-level; mock replaces it via patch
@@ -31,6 +33,8 @@ class MinIOClient:
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
         )
+        self._internal_base = f"{scheme}://{endpoint}"
+        self._public_base = f"{scheme}://{public_endpoint or endpoint}"
         self.input_bucket = input_bucket
         self.output_bucket = output_bucket
 
@@ -58,17 +62,23 @@ class MinIOClient:
         resp = self._s3.create_multipart_upload(Bucket=self.input_bucket, Key=key)
         return resp["UploadId"]
 
+    def _rewrite_url(self, url: str) -> str:
+        """Replace internal Docker endpoint with public endpoint in presigned URLs."""
+        if self._public_base != self._internal_base:
+            url = url.replace(self._internal_base, self._public_base, 1)
+        return url
+
     def presign_part_urls(self, key: str, upload_id: str, num_parts: int) -> list:
         """Return list of {part_number, url} for direct browser upload to MinIO."""
         return [
             {
                 "part_number": i,
-                "url": self._s3.generate_presigned_url(
+                "url": self._rewrite_url(self._s3.generate_presigned_url(
                     "upload_part",
                     Params={"Bucket": self.input_bucket, "Key": key,
                             "UploadId": upload_id, "PartNumber": i},
                     ExpiresIn=7200,
-                ),
+                )),
             }
             for i in range(1, num_parts + 1)
         ]
@@ -110,11 +120,12 @@ class MinIOClient:
 
     def presign_get_url(self, bucket: str, key: str, expires_in: int = 604800) -> str:
         """Generate a presigned GET URL. Default expiry: 7 days."""
-        return self._s3.generate_presigned_url(
+        url = self._s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expires_in,
         )
+        return self._rewrite_url(url)
 
 
 _client: Optional[MinIOClient] = None
@@ -135,5 +146,6 @@ def init_client() -> MinIOClient:
         secure=SECURE,
         input_bucket=INPUT_BUCKET,
         output_bucket=OUTPUT_BUCKET,
+        public_endpoint=PUBLIC_ENDPOINT,
     )
     return _client

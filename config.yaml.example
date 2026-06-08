@@ -65,6 +65,7 @@ notification:
 
 minio:
   endpoint: localhost:9000
+  public_endpoint: localhost:9000   # browser-facing URL for presigned uploads (set to host IP/domain if remote)
   access_key: mediaflow
   secret_key: changeme
   secure: false

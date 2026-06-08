@@ -46,6 +46,7 @@ services:
       - WORKSPACE_DIR=/workspace
       - WEBHOOK_URL=${WEBHOOK_URL:-}
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-mediaflow}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme}
       - MINIO_SECURE=${MINIO_SECURE:-false}
