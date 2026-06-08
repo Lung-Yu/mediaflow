@@ -62,3 +62,16 @@ api:
 
 notification:
   webhook_url: ""   # optional: POST on task completion (n8n, Slack, ntfy, etc.)
+
+minio:
+  endpoint: localhost:9000
+  access_key: mediaflow
+  secret_key: changeme
+  secure: false
+  input_bucket: mediaflow-input
+  output_bucket: mediaflow-output
+
+upload:
+  max_file_bytes: 5368709120   # 5 GB
+  part_size_bytes: 104857600   # 100 MB per part
+  max_concurrent: 2

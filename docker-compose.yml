@@ -16,6 +16,24 @@ services:
       timeout: 3s
       retries: 5
 
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-mediaflow}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -27,6 +45,15 @@ services:
       - DB_PATH=/app/data/pipeline.db
       - WORKSPACE_DIR=/workspace
       - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-mediaflow}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - MINIO_INPUT_BUCKET=${MINIO_INPUT_BUCKET:-mediaflow-input}
+      - MINIO_OUTPUT_BUCKET=${MINIO_OUTPUT_BUCKET:-mediaflow-output}
+      - UPLOAD_MAX_FILE_BYTES=${UPLOAD_MAX_FILE_BYTES:-5368709120}
+      - UPLOAD_PART_SIZE_BYTES=${UPLOAD_PART_SIZE_BYTES:-104857600}
+      - UPLOAD_MAX_CONCURRENT=${UPLOAD_MAX_CONCURRENT:-2}
     volumes:
       - ./workspace:/workspace:ro   # read-only SRT access (same-machine deploy)
       - ./data:/app/data            # writable dir for pipeline.db
@@ -34,6 +61,8 @@ services:
       - "8080:8080"
     depends_on:
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   web:
@@ -50,3 +79,4 @@ services:
 
 volumes:
   redis-data:
+  minio-data:
