@@ -1,8 +1,14 @@
 """Shared event-processing logic — used by both the HTTP route and Redis consumer."""
+import asyncio
 import json
+import logging
+import os
 import time
+from pathlib import Path
 from api import db
 from api.webhook import notify
+
+log = logging.getLogger(__name__)
 
 _STATUS_MAP = {
     "task.submitted":  "submitted",
@@ -60,5 +66,16 @@ async def process_event(fields: dict) -> str:
             "error_msg": fields.get("error_msg", ""),
             "completed_at": ts,
         })
+
+    if event == "task.completed":
+        try:
+            from api import minio_client as minio_mod
+            client = minio_mod.get_client()
+            output_dir = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, client.upload_outputs, stem, output_dir)
+            await db.upsert_task(stem, minio_output_prefix=f"{stem}/")
+        except Exception as exc:
+            log.warning("MinIO output backup failed for %s: %s", stem, exc)
 
     return new_status
