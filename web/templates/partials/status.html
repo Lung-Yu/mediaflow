@@ -34,11 +34,12 @@
       <span class="dot dot-processing"></span>
       <span class="task-stem">{{ t.stem }}</span>
       <div class="stage-track">
-        {% set stages = ['preprocessing','transcription','verification','summary'] %}
+        {% set stages = ['preprocess','transcribe','diarize','summarize'] %}
+        {% set cur_idx = stages.index(t.current_stage) if t.current_stage in stages else -1 %}
         {% for s in stages %}
           {% if t.current_stage == s %}
             <div class="stage-pip current" title="{{ s }}"></div>
-          {% elif stages.index(s) < stages.index(t.current_stage or '') %}
+          {% elif stages.index(s) < cur_idx %}
             <div class="stage-pip done" title="{{ s }}"></div>
           {% else %}
             <div class="stage-pip" title="{{ s }}"></div>
