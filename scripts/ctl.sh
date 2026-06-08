@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# mediaflow service control
+#
+# Usage:
+#   scripts/ctl.sh status
+#   scripts/ctl.sh start   [all|docker|watcher|diarize]
+#   scripts/ctl.sh stop    [all|docker|watcher|diarize]
+#   scripts/ctl.sh restart [all|docker|watcher|diarize|api|web]
+#   scripts/ctl.sh rebuild [all|docker|api|web]
+#   scripts/ctl.sh logs    [api|web|redis|watcher|diarize]
+#
+# 'all'    = docker containers + watcher  (default for start/stop/restart)
+# 'docker' = api + web + redis containers only
+# 'diarize' must be started explicitly (optional, heavy model)
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# ── Paths ────────────────────────────────────────────────────
+PID_DIR="data/pids"
+LOG_DIR="data/logs"
+mkdir -p "$PID_DIR" "$LOG_DIR"
+
+# ── Compose detection ─────────────────────────────────────────
+if docker compose version &>/dev/null 2>&1; then
+    COMPOSE="docker compose"
+elif podman compose version &>/dev/null 2>&1; then
+    COMPOSE="podman compose"
+elif command -v podman-compose &>/dev/null; then
+    COMPOSE="podman-compose"
+else
+    echo "ERROR: docker compose / podman compose not found" >&2
+    exit 1
+fi
+
+# ── Colour helpers ────────────────────────────────────────────
+_ok()   { printf '\033[32m✓\033[0m  %s\n' "$*"; }
+_fail() { printf '\033[31m✗\033[0m  %s\n' "$*"; }
+_info() { printf '\033[36m→\033[0m  %s\n' "$*"; }
+_head() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+_warn() { printf '\033[33m!\033[0m  %s\n' "$*"; }
+
+# ── Process helpers ───────────────────────────────────────────
+_pid_file()  { echo "$PID_DIR/$1.pid"; }
+
+_is_running() {
+    local f; f=$(_pid_file "$1")
+    [[ -f "$f" ]] && kill -0 "$(cat "$f")" 2>/dev/null
+}
+
+_start_bg() {
+    local name="$1"; shift
+    if _is_running "$name"; then
+        _info "$name already running (pid $(cat "$(_pid_file "$name")")"
+        return
+    fi
+    nohup "$@" >> "$LOG_DIR/$name.log" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$(_pid_file "$name")"
+    disown "$pid"
+    sleep 1
+    if _is_running "$name"; then
+        _ok "$name started (pid $pid)  logs: ctl.sh logs $name"
+    else
+        _fail "$name failed to start — run: scripts/ctl.sh logs $name"
+        rm -f "$(_pid_file "$name")"
+        return 1
+    fi
+}
+
+_stop_proc() {
+    local name="$1"
+    local f; f=$(_pid_file "$name")
+    if _is_running "$name"; then
+        kill "$(cat "$f")" 2>/dev/null || true
+        sleep 1
+        # SIGKILL if still alive
+        kill -0 "$(cat "$f")" 2>/dev/null && kill -9 "$(cat "$f")" 2>/dev/null || true
+        rm -f "$f"
+        _ok "$name stopped"
+    else
+        rm -f "$f"
+        _info "$name not running"
+    fi
+}
+
+# ── Health checks ─────────────────────────────────────────────
+_http_ok() { curl -sf "$1" &>/dev/null; }
+
+_wait_ready() {
+    local url="$1" name="$2" max="${3:-30}"
+    local n=0
+    while ! _http_ok "$url" && [[ $n -lt $max ]]; do sleep 1; ((n++)); done
+    _http_ok "$url" && _ok "$name ready" || { _fail "$name not ready after ${max}s"; return 1; }
+}
+
+# ── Commands ─────────────────────────────────────────────────
+
+do_status() {
+    _head "Docker containers"
+    $COMPOSE ps --format "table {{.Service}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null \
+        | tail -n +2 \
+        | while IFS= read -r line; do _info "$line"; done
+
+    _head "Native processes"
+    _is_running "watcher" \
+        && _ok  "watcher   pid=$(cat "$(_pid_file watcher)")" \
+        || _fail "watcher   not running  →  ctl.sh start watcher"
+    _is_running "diarize" \
+        && _ok  "diarize   pid=$(cat "$(_pid_file diarize)")" \
+        || _info "diarize   not running  →  ctl.sh start diarize  (optional)"
+
+    _head "Health"
+    _http_ok http://localhost:8080/health && _ok "api    :8080" || _fail "api    :8080"
+    _http_ok http://localhost:3000/health && _ok "web    :3000" || _fail "web    :3000"
+    _http_ok http://localhost:9003/health && _ok "diarize:9003" || _info "diarize:9003  (optional)"
+
+    _head "External (not managed here)"
+    _http_ok http://localhost:9001/health  && _ok "whisper :9001" || _fail "whisper :9001  (start separately)"
+    _http_ok http://localhost:11434/api/tags && _ok "ollama  :11434" || _fail "ollama  :11434  (ollama serve)"
+}
+
+do_start() {
+    local svc="${1:-all}"
+    [[ -f config.yaml ]] || { _fail "config.yaml missing — cp config.yaml.example config.yaml"; exit 1; }
+
+    if [[ "$svc" == "all" || "$svc" == "docker" ]]; then
+        _head "Starting Docker services"
+        $COMPOSE up -d
+        _wait_ready http://localhost:8080/health "api :8080"
+        _wait_ready http://localhost:3000/health "web :3000"
+    fi
+
+    if [[ "$svc" == "all" || "$svc" == "watcher" ]]; then
+        _head "Starting pipeline watcher"
+        [[ -f venv/bin/activate ]] || { _fail "venv not found — run: python3 -m venv venv && pip install -r requirements.txt"; exit 1; }
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+        _start_bg watcher python -m pipeline.watcher
+    fi
+
+    if [[ "$svc" == "diarize" ]]; then
+        _head "Starting diarize service"
+        if [[ ! -d venv-diarize ]]; then
+            _info "Creating venv-diarize..."
+            python3 -m venv venv-diarize
+            venv-diarize/bin/pip install --quiet -r diarize/requirements.txt
+        fi
+        _start_bg diarize venv-diarize/bin/uvicorn diarize.service:app --host 0.0.0.0 --port 9003
+    fi
+}
+
+do_stop() {
+    local svc="${1:-all}"
+
+    if [[ "$svc" == "all" || "$svc" == "watcher" ]]; then
+        _stop_proc watcher
+    fi
+    if [[ "$svc" == "all" || "$svc" == "diarize" ]]; then
+        _stop_proc diarize
+    fi
+    if [[ "$svc" == "all" || "$svc" == "docker" ]]; then
+        _head "Stopping Docker services"
+        $COMPOSE down
+        _ok "Docker services stopped"
+    fi
+
+    # Individual docker service stop
+    case "$svc" in api|web|redis)
+        $COMPOSE stop "$svc" && _ok "$svc stopped" ;;
+    esac
+}
+
+do_restart() {
+    local svc="${1:-all}"
+
+    # Individual docker services — just use compose restart
+    case "$svc" in
+        api|web|redis)
+            _head "Restarting $svc"
+            $COMPOSE restart "$svc"
+            [[ "$svc" == "api" ]] && _wait_ready http://localhost:8080/health "api :8080"
+            [[ "$svc" == "web" ]] && _wait_ready http://localhost:3000/health "web :3000"
+            return ;;
+    esac
+
+    do_stop "$svc"
+    sleep 1
+    do_start "$svc"
+}
+
+do_rebuild() {
+    local svc="${1:-docker}"
+
+    _head "Rebuilding $svc"
+
+    if [[ "$svc" == "all" || "$svc" == "docker" ]]; then
+        _stop_proc watcher   # avoid watcher errors during API downtime
+        _info "Building api + web images..."
+        $COMPOSE build api web
+        $COMPOSE up -d
+        _wait_ready http://localhost:8080/health "api :8080"
+        _wait_ready http://localhost:3000/health "web :3000"
+        _head "Restarting watcher"
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+        _start_bg watcher python -m pipeline.watcher
+        return
+    fi
+
+    # Individual container rebuild
+    case "$svc" in api|web)
+        _stop_proc watcher
+        _info "Building $svc..."
+        $COMPOSE build "$svc"
+        $COMPOSE up -d "$svc"
+        [[ "$svc" == "api" ]] && _wait_ready http://localhost:8080/health "api :8080"
+        [[ "$svc" == "web" ]] && _wait_ready http://localhost:3000/health "web :3000"
+        # shellcheck disable=SC1091
+        source venv/bin/activate
+        _start_bg watcher python -m pipeline.watcher
+        ;;
+    *) _fail "rebuild target must be: all, docker, api, web"; exit 1 ;;
+    esac
+}
+
+do_logs() {
+    local svc="${1:-api}"
+    case "$svc" in
+        api|web|redis) $COMPOSE logs -f "$svc" ;;
+        watcher)       tail -f "$LOG_DIR/watcher.log" ;;
+        diarize)       tail -f "$LOG_DIR/diarize.log" ;;
+        *) _fail "unknown service: $svc"; exit 1 ;;
+    esac
+}
+
+# ── Dispatch ──────────────────────────────────────────────────
+CMD="${1:-status}"
+SVC="${2:-all}"
+
+case "$CMD" in
+    status)         do_status ;;
+    start)          do_start  "$SVC" ;;
+    stop)           do_stop   "$SVC" ;;
+    restart)        do_restart "$SVC" ;;
+    rebuild)        do_rebuild "$SVC" ;;
+    logs)           do_logs   "$SVC" ;;
+    -h|--help|help)
+        sed -n '2,12p' "$0"   # print the Usage comment at top
+        ;;
+    *)
+        _fail "unknown command: $CMD"
+        echo "Usage: $0 {status|start|stop|restart|rebuild|logs} [service]"
+        exit 1 ;;
+esac
