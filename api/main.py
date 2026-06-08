@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,6 @@ async def lifespan(app: FastAPI):
     try:
         minio_mod.get_client().ensure_buckets()
     except Exception as exc:
-        import logging
         logging.getLogger(__name__).warning("MinIO unavailable on startup: %s", exc)
 
     redis_task = asyncio.create_task(consumer.run())
