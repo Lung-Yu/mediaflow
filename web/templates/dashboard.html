@@ -16,6 +16,7 @@
         <nav class="header-nav">
           <a href="/" class="active">dashboard</a>
           <a href="/srts">transcripts</a>
+          <a href="/upload">upload</a>
         </nav>
         <span><span class="live-dot"></span>live</span>
         <span id="live-clock">—</span>
@@ -28,6 +29,13 @@
          hx-trigger="every 5s"
          hx-swap="innerHTML">
       {% include "partials/status.html" %}
+    </div>
+
+    {# Upload queue panel — polled every 10 s #}
+    <div id="queue-region"
+         hx-get="/partial/queue"
+         hx-trigger="every 10s"
+         hx-swap="innerHTML">
     </div>
 
     <footer>

@@ -1,0 +1,59 @@
+{# HTMX partial — polled every 10 s to show upload queue status #}
+{% if tasks %}
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">上傳佇列</span>
+    <span class="section-count">{{ tasks|length }}</span>
+  </div>
+  <div class="task-list">
+    {% for t in tasks %}
+    <div class="task-row {% if t.status == 'completed' %}is-completed{% elif t.status == 'failed' %}is-failed{% elif t.status in ('processing', 'downloading') %}is-processing{% endif %}">
+
+      {% if t.status == 'completed' %}
+        <span class="dot" style="color:#44aa44" title="completed">●</span>
+      {% elif t.status == 'failed' %}
+        <span class="dot" style="color:#cc4444" title="failed">●</span>
+      {% elif t.status in ('processing', 'submitted') %}
+        <span class="dot dot-processing" title="{{ t.status }}">●</span>
+      {% elif t.status == 'downloading' %}
+        <span class="dot" style="color:#5566cc" title="downloading">↓</span>
+      {% else %}
+        <span class="dot" style="color:#aaa" title="{{ t.status }}">○</span>
+      {% endif %}
+
+      <span class="task-stem">{{ t.stem }}</span>
+
+      {% if t.current_stage %}
+        <span class="task-stage">{{ t.current_stage }}</span>
+      {% elif t.status == 'downloading' %}
+        <span class="task-stage">MinIO 下載中...</span>
+      {% elif t.status == 'pending' %}
+        <span class="task-stage">等待佇列</span>
+      {% endif %}
+
+      {% if t.status == 'completed' and t.downloads %}
+        <span class="task-links">
+          {% if '.srt' in t.downloads %}
+            <a href="{{ t.downloads['.srt'] }}" class="dl-link">⬇ SRT</a>
+          {% endif %}
+          {% if '_summary.md' in t.downloads %}
+            <a href="{{ t.downloads['_summary.md'] }}" class="dl-link">⬇ 摘要</a>
+          {% endif %}
+        </span>
+      {% endif %}
+
+      {% if t.status == 'pending' %}
+        <form method="post" action="/upload/queue/{{ t.stem }}/cancel"
+              style="margin:0" onsubmit="return confirm('取消 {{ t.stem }}？')">
+          <button type="submit" class="cancel-btn">✕</button>
+        </form>
+      {% endif %}
+
+      {% if t.error_msg %}
+        <span class="task-error" title="{{ t.error_msg }}">⚠</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

@@ -122,6 +122,46 @@ async def save_speaker_names(request: Request, stem: str):
     )
 
 
+# ── Upload page ───────────────────────────────────────────────
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_page(request: Request):
+    return templates.TemplateResponse(request=request, name="upload.html", context={})
+
+
+@app.post("/upload/init")
+async def upload_init_proxy(request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(f"{API_URL}/upload/init", json=body)
+        return r.json()
+
+
+@app.post("/upload/complete")
+async def upload_complete_proxy(request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(f"{API_URL}/upload/complete", json=body)
+        return r.json()
+
+
+@app.get("/partial/queue", response_class=HTMLResponse)
+async def queue_partial(request: Request):
+    tasks = await _get("/upload/queue")
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/queue.html",
+        context={"tasks": tasks if isinstance(tasks, list) else []},
+    )
+
+
+@app.post("/upload/queue/{stem}/cancel", response_class=HTMLResponse)
+async def cancel_upload_proxy(request: Request, stem: str):
+    from fastapi.responses import RedirectResponse
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.delete(f"{API_URL}/upload/queue/{stem}")
+    return RedirectResponse(url="/", status_code=303)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

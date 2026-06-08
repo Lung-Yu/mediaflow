@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mediaflow — Upload</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="wordmark">media<span>flow</span></div>
+      <div class="header-meta">
+        <nav class="header-nav">
+          <a href="/">dashboard</a>
+          <a href="/srts">transcripts</a>
+          <a href="/upload" class="active">upload</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="upload-main">
+      <div class="card">
+        <h2>上傳音訊 / 視訊</h2>
+
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-zone-icon">⬆</div>
+          <p>拖曳檔案到這裡，或</p>
+          <label class="file-pick-btn">
+            選擇檔案
+            <input type="file" id="file-input" multiple
+                   accept=".mp4,.m4a,.mp3,.wav,.flac" hidden>
+          </label>
+          <p class="upload-hint">支援 .mp4 .m4a .mp3 .wav .flac｜單檔上限 5 GB</p>
+        </div>
+
+        <div id="file-list" class="file-list" hidden></div>
+
+        <button id="start-btn" class="upload-start-btn" hidden>開始上傳</button>
+      </div>
+    </main>
+
+    <footer>
+      <span>mediaflow pipeline monitor</span>
+    </footer>
+  </div>
+
+  <style>
+    .upload-main { padding: 1rem 0; }
+    .drop-zone {
+      border: 2px dashed #5555aa;
+      border-radius: 10px;
+      padding: 2.5rem;
+      text-align: center;
+      background: #f9f9ff;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 1rem;
+    }
+    .drop-zone.drag-over { background: #eeeeff; border-color: #3333cc; }
+    .drop-zone-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .upload-hint { color: #888; font-size: 0.8em; margin-top: 0.5rem; }
+    .file-pick-btn {
+      display: inline-block;
+      padding: 0.4rem 1.2rem;
+      background: #5566cc;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    .file-list { margin-top: 1rem; }
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid #eee;
+      flex-wrap: wrap;
+    }
+    .file-name { flex: 1; font-weight: 500; min-width: 150px; }
+    .file-size { color: #888; font-size: 0.85em; min-width: 60px; text-align: right; }
+    .file-status { min-width: 140px; font-size: 0.85em; }
+    .progress-bar { width: 100px; height: 6px; background: #ddd; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #5566cc; width: 0%; transition: width 0.3s; }
+    .status-waiting { color: #888; }
+    .status-uploading { color: #5566cc; }
+    .status-done { color: #44aa44; }
+    .status-error { color: #cc4444; }
+    .upload-start-btn {
+      margin-top: 1rem;
+      padding: 0.6rem 2rem;
+      background: #3344aa;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      display: block;
+    }
+    .upload-start-btn:disabled { background: #999; cursor: default; }
+  </style>
+
+  <script>
+    const PART_SIZE = 100 * 1024 * 1024;
+    let selectedFiles = [];
+
+    function formatBytes(b) {
+      if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
+      if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB';
+      return (b / 1e3).toFixed(0) + ' KB';
+    }
+
+    function renderFileList() {
+      const list = document.getElementById('file-list');
+      list.innerHTML = '';
+      selectedFiles.forEach((f, i) => {
+        list.innerHTML += `
+          <div class="file-row" id="row-${i}">
+            <span class="file-name">${f.name}</span>
+            <span class="file-size">${formatBytes(f.size)}</span>
+            <div class="progress-bar"><div class="progress-fill" id="prog-${i}"></div></div>
+            <span class="file-status status-waiting" id="status-${i}">等待中</span>
+          </div>`;
+      });
+      list.hidden = false;
+      document.getElementById('start-btn').hidden = false;
+    }
+
+    function setStatus(i, text, cls) {
+      const el = document.getElementById('status-' + i);
+      el.textContent = text;
+      el.className = 'file-status ' + cls;
+    }
+
+    function setProgress(i, pct) {
+      document.getElementById('prog-' + i).style.width = pct + '%';
+    }
+
+    async function uploadFile(file, index) {
+      setStatus(index, '初始化...', 'status-uploading');
+
+      const initRes = await fetch('/upload/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          size_bytes: file.size,
+          content_type: file.type || 'application/octet-stream',
+        }),
+      });
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        setStatus(index, '錯誤: ' + (err.detail || initRes.status), 'status-error');
+        return false;
+      }
+      const { upload_id, minio_key, part_size, parts } = await initRes.json();
+
+      const completedParts = [];
+      for (const part of parts) {
+        const start = (part.part_number - 1) * part_size;
+        const end = Math.min(start + part_size, file.size);
+        const chunk = file.slice(start, end);
+
+        setStatus(index, '上傳中 ' + part.part_number + '/' + parts.length, 'status-uploading');
+        setProgress(index, Math.round((part.part_number - 1) / parts.length * 100));
+
+        const putRes = await fetch(part.url, { method: 'PUT', body: chunk });
+        if (!putRes.ok) {
+          setStatus(index, '上傳失敗 (part ' + part.part_number + ')', 'status-error');
+          return false;
+        }
+        const etag = putRes.headers.get('ETag') || putRes.headers.get('etag') || '';
+        completedParts.push({ part_number: part.part_number, etag });
+        setProgress(index, Math.round(part.part_number / parts.length * 100));
+      }
+
+      setStatus(index, '完成中...', 'status-uploading');
+      const completeRes = await fetch('/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_id, minio_key, parts: completedParts }),
+      });
+      if (!completeRes.ok) {
+        setStatus(index, '完成失敗', 'status-error');
+        return false;
+      }
+
+      setProgress(index, 100);
+      setStatus(index, '✓ 已加入佇列', 'status-done');
+      return true;
+    }
+
+    document.getElementById('start-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('start-btn');
+      btn.disabled = true;
+      btn.textContent = '上傳中...';
+      for (let i = 0; i < selectedFiles.length; i++) {
+        await uploadFile(selectedFiles[i], i);
+      }
+      btn.textContent = '完成 — 前往 Dashboard 查看進度';
+      btn.onclick = () => { window.location.href = '/'; };
+      btn.disabled = false;
+    });
+
+    function addFiles(files) {
+      const existing = new Set(selectedFiles.map(f => f.name));
+      for (const f of files) {
+        if (!existing.has(f.name)) selectedFiles.push(f);
+      }
+      if (selectedFiles.length) renderFileList();
+    }
+
+    document.getElementById('file-input').addEventListener('change', e => addFiles(e.target.files));
+
+    const dz = document.getElementById('drop-zone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('drag-over');
+      addFiles(e.dataTransfer.files);
+    });
+  </script>
+</body>
+</html>
