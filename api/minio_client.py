@@ -1,11 +1,11 @@
 """boto3 wrapper for MinIO operations used by the upload flow."""
 import os
-import sys as _sys
 from pathlib import Path
 from typing import Optional
 
+# Guard prevents importlib.reload() (used in tests) from overwriting a mock
 if "boto3" not in dir():
-    import boto3
+    import boto3  # noqa: F401
 from botocore.exceptions import ClientError
 
 ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -23,9 +23,8 @@ class MinIOClient:
         self, endpoint: str, access_key: str, secret_key: str,
         secure: bool, input_bucket: str, output_bucket: str,
     ):
-        _boto3 = _sys.modules[__name__].boto3
         scheme = "https" if secure else "http"
-        self._s3 = _boto3.client(
+        self._s3 = boto3.client(  # boto3 is module-level; mock replaces it via patch
             "s3",
             endpoint_url=f"{scheme}://{endpoint}",
             aws_access_key_id=access_key,
