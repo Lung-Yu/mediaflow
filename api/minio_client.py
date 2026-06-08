@@ -6,6 +6,7 @@ from typing import Optional
 # Guard prevents importlib.reload() (used in tests) from overwriting a mock
 if "boto3" not in dir():
     import boto3  # noqa: F401
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -26,12 +27,18 @@ class MinIOClient:
         public_endpoint: str = "",
     ):
         scheme = "https" if secure else "http"
+        # request_checksum_calculation="when_required" prevents boto3 1.35+ from
+        # sending x-amz-checksum-* headers that MinIO returns NotImplemented for.
         self._s3 = boto3.client(  # boto3 is module-level; mock replaces it via patch
             "s3",
             endpoint_url=f"{scheme}://{endpoint}",
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
+            config=Config(
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
         )
         self._internal_base = f"{scheme}://{endpoint}"
         self._public_base = f"{scheme}://{public_endpoint or endpoint}"

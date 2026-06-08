@@ -1,20 +1,21 @@
-{# HTMX partial — polled every 10 s to show upload queue status #}
-{% if tasks %}
+{# HTMX partial — polled every 10 s to show upload-specific queue status.
+   Only shows: pending / downloading (pre-pipeline) and completed / failed (for download links).
+   Tasks in submitted/processing are already shown in the main status panel above. #}
+{% set visible = tasks | selectattr('status', 'in', ['pending', 'downloading', 'completed', 'failed']) | list %}
+{% if visible %}
 <div class="section">
   <div class="section-header">
     <span class="section-title">上傳佇列</span>
-    <span class="section-count">{{ tasks|length }}</span>
+    <span class="section-count">{{ visible|length }}</span>
   </div>
   <div class="task-list">
-    {% for t in tasks %}
-    <div class="task-row {% if t.status == 'completed' %}is-completed{% elif t.status == 'failed' %}is-failed{% elif t.status in ('processing', 'downloading') %}is-processing{% endif %}">
+    {% for t in visible %}
+    <div class="task-row {% if t.status == 'completed' %}is-completed{% elif t.status == 'failed' %}is-failed{% elif t.status == 'downloading' %}is-processing{% endif %}">
 
       {% if t.status == 'completed' %}
         <span class="dot" style="color:#44aa44" title="completed">●</span>
       {% elif t.status == 'failed' %}
         <span class="dot" style="color:#cc4444" title="failed">●</span>
-      {% elif t.status in ('processing', 'submitted') %}
-        <span class="dot dot-processing" title="{{ t.status }}">●</span>
       {% elif t.status == 'downloading' %}
         <span class="dot" style="color:#5566cc" title="downloading">↓</span>
       {% else %}
@@ -23,12 +24,10 @@
 
       <span class="task-stem">{{ t.stem }}</span>
 
-      {% if t.current_stage %}
-        <span class="task-stage">{{ t.current_stage }}</span>
-      {% elif t.status == 'downloading' %}
+      {% if t.status == 'downloading' %}
         <span class="task-stage">MinIO 下載中...</span>
       {% elif t.status == 'pending' %}
-        <span class="task-stage">等待佇列</span>
+        <span class="task-stage">等待下載</span>
       {% endif %}
 
       {% if t.status == 'completed' and t.downloads %}
@@ -50,7 +49,7 @@
       {% endif %}
 
       {% if t.error_msg %}
-        <span class="task-error" title="{{ t.error_msg }}">⚠</span>
+        <span class="task-error" title="{{ t.error_msg }}">⚠ {{ t.error_msg[:60] }}</span>
       {% endif %}
     </div>
     {% endfor %}
