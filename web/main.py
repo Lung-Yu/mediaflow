@@ -2,7 +2,7 @@ import asyncio
 import os
 import httpx
 from fastapi import FastAPI, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -156,7 +156,6 @@ async def queue_partial(request: Request):
 
 @app.post("/upload/queue/{stem}/cancel", response_class=HTMLResponse)
 async def cancel_upload_proxy(request: Request, stem: str):
-    from fastapi.responses import RedirectResponse
     async with httpx.AsyncClient(timeout=10.0) as client:
         await client.delete(f"{API_URL}/upload/queue/{stem}")
     return RedirectResponse(url="/", status_code=303)
