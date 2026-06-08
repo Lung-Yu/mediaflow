@@ -6,7 +6,6 @@ from typing import Optional
 # Guard prevents importlib.reload() (used in tests) from overwriting a mock
 if "boto3" not in dir():
     import boto3  # noqa: F401
-from botocore.config import Config
 from botocore.exceptions import ClientError
 
 ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -27,23 +26,30 @@ class MinIOClient:
         public_endpoint: str = "",
     ):
         scheme = "https" if secure else "http"
-        # request_checksum_calculation="when_required" prevents boto3 1.35+ from
-        # sending x-amz-checksum-* headers that MinIO returns NotImplemented for.
         self._s3 = boto3.client(  # boto3 is module-level; mock replaces it via patch
             "s3",
             endpoint_url=f"{scheme}://{endpoint}",
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
-            config=Config(
-                request_checksum_calculation="when_required",
-                response_checksum_validation="when_required",
-            ),
+        )
+        # boto3 1.35+ sends x-amz-checksum-* on PutBucketCors which MinIO rejects.
+        # Strip those headers for that specific operation via an event hook.
+        self._s3.meta.events.register(
+            "before-send.s3.PutBucketCors",
+            self._strip_checksum_headers,
         )
         self._internal_base = f"{scheme}://{endpoint}"
         self._public_base = f"{scheme}://{public_endpoint or endpoint}"
         self.input_bucket = input_bucket
         self.output_bucket = output_bucket
+
+    @staticmethod
+    def _strip_checksum_headers(request, **kwargs):
+        """Remove x-amz-checksum-* headers MinIO doesn't implement."""
+        for key in list(request.headers):
+            if key.lower().startswith("x-amz-checksum"):
+                del request.headers[key]
 
     def ensure_buckets(self) -> None:
         """Create buckets if absent; set CORS on input bucket for browser direct upload."""
