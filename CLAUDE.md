@@ -304,13 +304,12 @@ CREATE TABLE events (
 | P4-1 | Segment verification (whisper-large-v3) | `pipeline/stages.py` (`verify_segments`), `runner.py` |
 | P4-2 | Chapter detection (silence gaps + Ollama titling) | `pipeline/stages.py` (`detect_chapters`), `prompts.yaml` |
 | P4-3 | Speaker diarization (speechbrain, Apache 2.0) | `diarize/service.py`, `pipeline/stages.py` (`diarize`) |
+| P4-4 | Speaker enrollment (voiceprint library) | `diarize/service.py` (`/embed`), `pipeline/enroll.py`, `pipeline/stages.py` (`diarize`) |
 | P5   | Mermaid architecture diagram | CLAUDE.md System Architecture |
 
 ### ❌ Not Yet Implemented
 
-**Phase 4 — Remaining**
-
-- **Speaker enrollment (Phase 2):** voiceprint library for recurring speakers. Pre-record sample → extract ECAPA-TDNN embedding → store in `data/speaker_library.json`. At diarization time, match each cluster against library; known speaker gets display name, unknown gets UNKNOWN_X. CLI: `python -m pipeline.enroll --name 老師 --audio sample.wav`.
+Nothing remaining — all planned phases complete.
 
 ---
 

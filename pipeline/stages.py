@@ -212,6 +212,17 @@ def verify_segments(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> P
 
 # ── Stage 2c: Diarization helpers ───────────────────────────────────────────
 
+def _load_speaker_library(path: str) -> list:
+    """Load speaker library JSON; return empty list if missing."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
 def _assign_speaker(block_start: float, block_end: float, diar_segs: list) -> "str | None":
     """Return the diarization speaker with maximum overlap in [block_start, block_end]."""
     max_overlap = 0.0
@@ -249,11 +260,18 @@ def diarize(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
         raw = json.loads(seg_path.read_text(encoding="utf-8"))
         whisper_segs = [{"start": s["start"], "end": s["end"]} for s in raw]
 
+    library = _load_speaker_library(d_cfg.get("library_path", "data/speaker_library.json"))
+    match_threshold = d_cfg.get("match_threshold", 0.70)
+
     try:
-        params = {"max_speakers": max_speakers}
+        params = {"max_speakers": max_speakers, "match_threshold": match_threshold}
         if num_speakers:
             params["num_speakers"] = num_speakers
-        data = {"segments": json.dumps(whisper_segs)} if whisper_segs else {}
+        data: dict = {}
+        if whisper_segs:
+            data["segments"] = json.dumps(whisper_segs)
+        if library:
+            data["library"] = json.dumps(library)
         with open(audio_path, "rb") as f:
             resp = httpx.post(
                 f"{service_url}/diarize",
