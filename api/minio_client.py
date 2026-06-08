@@ -1,8 +1,5 @@
 """boto3 wrapper for MinIO operations used by the upload flow."""
-import hashlib
-import json
 import os
-from base64 import b64encode
 from pathlib import Path
 from typing import Optional
 
@@ -36,65 +33,22 @@ class MinIOClient:
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
         )
-        self._access_key = access_key
-        self._secret_key = secret_key
         self._internal_base = f"{scheme}://{endpoint}"
         self._public_base = f"{scheme}://{public_endpoint or endpoint}"
         self.input_bucket = input_bucket
         self.output_bucket = output_bucket
 
     def ensure_buckets(self) -> None:
-        """Create buckets if absent; set CORS on input bucket for browser direct upload."""
+        """Create buckets if absent.
+
+        CORS is configured at the MinIO server level via MINIO_API_CORS_ALLOW_ORIGIN
+        (set in docker-compose.yml) — MinIO 2025+ removed the PutBucketCors S3 API.
+        """
         for bucket in [self.input_bucket, self.output_bucket]:
             try:
                 self._s3.create_bucket(Bucket=bucket)
             except Exception:
                 pass  # already exists
-        self._set_cors_via_http()
-
-    def _set_cors_via_http(self) -> None:
-        """Set bucket CORS via raw HTTP + SigV4, bypassing boto3 checksum headers.
-
-        boto3 1.35+ sends x-amz-checksum-* on PutBucketCors which MinIO rejects
-        with NotImplemented. Using httpx + botocore signing avoids that entirely.
-        """
-        import httpx
-        from botocore.auth import SigV4Auth
-        from botocore.awsrequest import AWSRequest
-        from botocore.credentials import Credentials
-
-        cors_xml = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<CORSConfiguration>"
-            "<CORSRule>"
-            "<AllowedHeader>*</AllowedHeader>"
-            "<AllowedMethod>GET</AllowedMethod>"
-            "<AllowedMethod>PUT</AllowedMethod>"
-            "<AllowedMethod>HEAD</AllowedMethod>"
-            "<AllowedOrigin>*</AllowedOrigin>"
-            "<ExposeHeader>ETag</ExposeHeader>"
-            "</CORSRule>"
-            "</CORSConfiguration>"
-        )
-        body = cors_xml.encode()
-        body_sha256 = hashlib.sha256(body).hexdigest()
-        url = f"{self._internal_base}/{self.input_bucket}?cors"
-
-        aws_req = AWSRequest(
-            method="PUT",
-            url=url,
-            data=body,
-            headers={
-                "Content-Type": "application/xml",
-                "x-amz-content-sha256": body_sha256,
-            },
-        )
-        SigV4Auth(
-            Credentials(self._access_key, self._secret_key), "s3", "us-east-1"
-        ).add_auth(aws_req)
-
-        resp = httpx.put(url, content=body, headers=dict(aws_req.headers))
-        resp.raise_for_status()
 
     def create_multipart_upload(self, key: str) -> str:
         """Initiate a multipart upload and return the upload ID."""

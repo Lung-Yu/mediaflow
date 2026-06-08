@@ -31,26 +31,25 @@ def client(mock_boto3):
 def test_ensure_buckets_creates_both(client, mock_boto3):
     _, s3 = mock_boto3
     s3.create_bucket.side_effect = [None, None]
-    with patch("api.minio_client.MinIOClient._set_cors_via_http"):
-        client.ensure_buckets()
+    client.ensure_buckets()
     assert s3.create_bucket.call_count == 2
     calls = [c[1]["Bucket"] for c in s3.create_bucket.call_args_list]
     assert "test-input" in calls
     assert "test-output" in calls
 
 
-def test_ensure_buckets_sets_cors_via_http(client, mock_boto3):
-    # CORS is set via raw httpx + SigV4 to bypass boto3 1.35 checksum issue.
-    with patch("api.minio_client.MinIOClient._set_cors_via_http") as mock_cors:
-        client.ensure_buckets()
-    mock_cors.assert_called_once()
+def test_ensure_buckets_cors_set_via_server_env(client, mock_boto3):
+    # CORS is set at MinIO server level (MINIO_API_CORS_ALLOW_ORIGIN in docker-compose).
+    # ensure_buckets() only creates buckets — no PutBucketCors call needed.
+    _, s3 = mock_boto3
+    client.ensure_buckets()
+    s3.put_bucket_cors.assert_not_called()
 
 
 def test_ensure_buckets_ignores_already_owned(client, mock_boto3):
     _, s3 = mock_boto3
     s3.create_bucket.side_effect = Exception("BucketAlreadyOwnedByYou")
-    with patch("api.minio_client.MinIOClient._set_cors_via_http"):
-        client.ensure_buckets()  # should not raise
+    client.ensure_buckets()  # should not raise
 
 
 def test_create_multipart_upload_returns_upload_id(client, mock_boto3):
