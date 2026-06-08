@@ -34,9 +34,20 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 """
 
 
+_MIGRATIONS = [
+    "ALTER TABLE tasks ADD COLUMN minio_input_key TEXT",
+    "ALTER TABLE tasks ADD COLUMN minio_output_prefix TEXT",
+]
+
+
 async def init():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        for sql in _MIGRATIONS:
+            try:
+                await db.execute(sql)
+            except Exception:
+                pass  # column already exists
         await db.commit()
 
 
@@ -89,3 +100,50 @@ async def get_status_overview() -> dict:
         failed = [dict(r) for r in await cur.fetchall()]
 
     return {"processing": processing, "queue": queue, "recent": recent, "failed": failed}
+
+
+async def get_task(stem: str) -> "dict | None":
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM tasks WHERE stem = ?", (stem,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def count_active_tasks() -> int:
+    """Count tasks occupying a pipeline slot."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM tasks "
+            "WHERE status IN ('downloading','queued','submitted','processing')"
+        )
+        row = await cur.fetchone()
+        return row[0] if row else 0
+
+
+async def get_oldest_pending() -> "dict | None":
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM tasks WHERE status = 'pending' "
+            "ORDER BY submitted_at ASC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def get_upload_queue() -> list:
+    """All upload-originated tasks (minio_input_key IS NOT NULL), newest first."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM tasks WHERE minio_input_key IS NOT NULL "
+            "ORDER BY submitted_at DESC"
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_task(stem: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM tasks WHERE stem = ?", (stem,))
+        await db.commit()
