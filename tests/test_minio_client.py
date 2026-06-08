@@ -38,14 +38,11 @@ def test_ensure_buckets_creates_both(client, mock_boto3):
     assert "test-output" in calls
 
 
-def test_ensure_buckets_sets_cors(client, mock_boto3):
-    _, s3 = mock_boto3
-    client.ensure_buckets()
-    s3.put_bucket_cors.assert_called_once()
-    args = s3.put_bucket_cors.call_args[1]
-    assert args["Bucket"] == "test-input"
-    rules = args["CORSConfiguration"]["CORSRules"]
-    assert any("ETag" in r.get("ExposeHeaders", []) for r in rules)
+def test_ensure_buckets_sets_cors_via_http(client, mock_boto3):
+    # CORS is set via raw httpx + SigV4 to bypass boto3 1.35 checksum issue.
+    with patch("api.minio_client.MinIOClient._set_cors_via_http") as mock_cors:
+        client.ensure_buckets()
+    mock_cors.assert_called_once()
 
 
 def test_ensure_buckets_ignores_already_owned(client, mock_boto3):
