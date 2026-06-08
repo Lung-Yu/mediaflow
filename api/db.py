@@ -46,7 +46,7 @@ async def init():
         for sql in _MIGRATIONS:
             try:
                 await db.execute(sql)
-            except Exception:
+            except aiosqlite.OperationalError:
                 pass  # column already exists
         await db.commit()
 
@@ -103,6 +103,7 @@ async def get_status_overview() -> dict:
 
 
 async def get_task(stem: str) -> "dict | None":
+    """Return task row as dict, or None if not found."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM tasks WHERE stem = ?", (stem,))
@@ -122,6 +123,7 @@ async def count_active_tasks() -> int:
 
 
 async def get_oldest_pending() -> "dict | None":
+    """Return the oldest pending upload task, or None if queue is empty."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -144,6 +146,7 @@ async def get_upload_queue() -> list:
 
 
 async def delete_task(stem: str) -> None:
+    """Permanently delete a task row (used to cancel pending uploads)."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM tasks WHERE stem = ?", (stem,))
         await db.commit()
