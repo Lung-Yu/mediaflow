@@ -77,14 +77,17 @@ class MinIOClient:
             "</CORSConfiguration>"
         )
         body = cors_xml.encode()
-        md5 = b64encode(hashlib.md5(body).digest()).decode()
+        body_sha256 = hashlib.sha256(body).hexdigest()
         url = f"{self._internal_base}/{self.input_bucket}?cors"
 
         aws_req = AWSRequest(
             method="PUT",
             url=url,
             data=body,
-            headers={"Content-Type": "application/xml", "Content-MD5": md5},
+            headers={
+                "Content-Type": "application/xml",
+                "x-amz-content-sha256": body_sha256,
+            },
         )
         SigV4Auth(
             Credentials(self._access_key, self._secret_key), "s3", "us-east-1"

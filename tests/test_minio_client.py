@@ -31,7 +31,8 @@ def client(mock_boto3):
 def test_ensure_buckets_creates_both(client, mock_boto3):
     _, s3 = mock_boto3
     s3.create_bucket.side_effect = [None, None]
-    client.ensure_buckets()
+    with patch("api.minio_client.MinIOClient._set_cors_via_http"):
+        client.ensure_buckets()
     assert s3.create_bucket.call_count == 2
     calls = [c[1]["Bucket"] for c in s3.create_bucket.call_args_list]
     assert "test-input" in calls
@@ -48,7 +49,8 @@ def test_ensure_buckets_sets_cors_via_http(client, mock_boto3):
 def test_ensure_buckets_ignores_already_owned(client, mock_boto3):
     _, s3 = mock_boto3
     s3.create_bucket.side_effect = Exception("BucketAlreadyOwnedByYou")
-    client.ensure_buckets()  # should not raise
+    with patch("api.minio_client.MinIOClient._set_cors_via_http"):
+        client.ensure_buckets()  # should not raise
 
 
 def test_create_multipart_upload_returns_upload_id(client, mock_boto3):
