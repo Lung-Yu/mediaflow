@@ -56,8 +56,9 @@ services:
       - UPLOAD_PART_SIZE_BYTES=${UPLOAD_PART_SIZE_BYTES:-104857600}
       - UPLOAD_MAX_CONCURRENT=${UPLOAD_MAX_CONCURRENT:-2}
     volumes:
-      - ./workspace:/workspace:ro   # read-only SRT access (same-machine deploy)
-      - ./data:/app/data            # writable dir for pipeline.db
+      - ./workspace:/workspace:ro          # read-only SRT access (same-machine deploy)
+      - ./workspace/1_input:/workspace/1_input  # writable for queue consumer downloads
+      - ./data:/app/data                   # writable dir for pipeline.db
     ports:
       - "8080:8080"
     depends_on:
