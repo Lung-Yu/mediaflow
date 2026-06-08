@@ -8,7 +8,7 @@ ollama>=0.3
 fastapi==0.128.8
 uvicorn[standard]==0.39.0
 jinja2==3.1.6
-python-multipart==0.0.20  # GHSA-wp53/mj87/pp6c: fix versions 0.0.22-0.0.27 not yet on PyPI
+python-multipart==0.0.27  # GHSA-wp53/mj87/pp6c: fix versions 0.0.22-0.0.27 not yet on PyPI
 httpx==0.28.1
 
 # Shared
