@@ -1,6 +1,7 @@
 """Tests for task management API — submission, rerun, delete."""
 import asyncio
 import os
+from pathlib import Path
 import pytest
 
 os.environ.setdefault("DB_PATH", ":memory:")
@@ -180,6 +181,15 @@ def test_rerun_unknown_task_returns_404(tasks_client):
     assert resp.status_code == 404
 
 
+def test_rerun_active_task_returns_409(tasks_client):
+    import api.db as db_mod
+    asyncio.get_event_loop().run_until_complete(
+        db_mod.upsert_task("active_s", status="processing", filename="active_s.m4a")
+    )
+    resp = tasks_client.post("/tasks/active_s/runs", json={})
+    assert resp.status_code == 409
+
+
 # ── DELETE /tasks/{stem} ─────────────────────────────────────────────────────
 
 def test_delete_removes_db_row(tasks_client):
@@ -194,9 +204,9 @@ def test_delete_removes_db_row(tasks_client):
     assert task is None
 
 
-def test_delete_removes_file_from_input(tasks_client, tmp_path, monkeypatch):
+def test_delete_removes_file_from_input(tasks_client, tmp_path):
     import api.db as db_mod
-    ws = tmp_path / "workspace"
+    ws = Path(os.environ["WORKSPACE_DIR"])
     f = ws / "1_input" / "queued.m4a"
     f.write_bytes(b"audio")
     asyncio.get_event_loop().run_until_complete(

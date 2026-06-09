@@ -42,7 +42,7 @@ class RunRequest(BaseModel):
 
 @router.post("", status_code=201)
 async def submit_task(req: SubmitRequest):
-    """Create a task from a host-local file path. For automation/AI callers on the same machine."""
+    """Create a task from a host-local file path. Trusts the caller has filesystem access — intended for same-machine automation only, not exposed to the internet."""
     path = Path(req.path)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
@@ -61,7 +61,10 @@ async def submit_task(req: SubmitRequest):
         )
 
     dest = WORKSPACE / "1_input" / path.name
-    shutil.copy2(path, dest)
+    try:
+        shutil.copy2(path, dest)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to stage file: {exc}")
 
     ts = time.time()
     await db.upsert_task(stem, filename=path.name, status="submitted", submitted_at=ts)
@@ -74,6 +77,12 @@ async def create_run(stem: str, req: RunRequest):
     task = await db.get_task(stem)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    if task["status"] in _ACTIVE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {stem!r} is already active (status={task['status']}). Wait for it to complete before rerunning.",
+        )
 
     if req.from_stage and req.from_stage not in _VALID_STAGES:
         raise HTTPException(
