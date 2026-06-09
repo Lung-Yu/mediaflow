@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 _STATUS_MAP = {
     "task.submitted":  "submitted",
+    "stage.started":   "processing",
     "stage.completed": "processing",
     "task.completed":  "completed",
     "task.failed":     "failed",
@@ -36,7 +37,7 @@ async def process_event(fields: dict) -> str:
         task_fields["filename"] = fields["filename"]
     if event == "task.submitted":
         task_fields["submitted_at"] = ts
-    if event == "stage.completed" and fields.get("stage") == "preprocessing":
+    if event == "stage.started" and fields.get("stage") == "preprocess":
         task_fields["started_at"] = ts
     if fields.get("stage"):
         task_fields["current_stage"] = fields["stage"]

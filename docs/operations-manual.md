@@ -44,9 +44,11 @@ All endpoints accept and return JSON. Error responses use `{"detail": "..."}`.
 
 #### `POST /tasks` — Submit local file
 
+> **⚠️ Docker path constraint:** The API runs inside Docker. `path` must be a path **visible to the API container** — i.e., inside a volume-mounted directory. On this deployment the API mounts `./workspace:/workspace`, so only paths under `workspace/` resolve correctly. A host path like `/Users/you/recording.m4a` will return 404 even if the file exists. Either copy the file into `workspace/` first, or use the web upload at http://localhost:3000/upload for files stored elsewhere.
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | string | ✓ | Absolute path to the audio/video file on the same machine |
+| `path` | string | ✓ | Container-visible absolute path (must be inside a volume mount — see note above) |
 | `stem` | string | — | Override the task name (derived from filename if omitted) |
 
 **Supported formats:** `.mp4`, `.m4a`, `.mp3`, `.wav`, `.flac`

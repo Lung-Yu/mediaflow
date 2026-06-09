@@ -154,6 +154,7 @@ def execute(
         if sid not in STAGE_RUNNERS:
             log.warning("Stage %r has no runner — add to runner.STAGE_RUNNERS", sid)
             continue
+        pub.publish("stage.started", ctx["stem"], stage=sid)
         ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
         pub.publish("stage.completed", ctx["stem"], stage=sid, **extra)
 
