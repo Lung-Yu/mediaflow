@@ -183,7 +183,7 @@ async def insert_rerun(stem: str, from_stage: "str | None") -> None:
 
 
 async def pop_oldest_rerun() -> "dict | None":
-    """Atomically pop the oldest rerun request. Returns None if queue is empty."""
+    """Pop and return the oldest rerun request, or None if the queue is empty."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(

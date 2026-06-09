@@ -53,5 +53,11 @@ def test_pop_returns_fifo_order(tmp_db):
         await tmp_db.insert_rerun("second", "summarize")
         row = await tmp_db.pop_oldest_rerun()
         assert row["stem"] == "first"
+        assert row["from_stage"] is None
+        row2 = await tmp_db.pop_oldest_rerun()
+        assert row2["stem"] == "second"
+        assert row2["from_stage"] == "summarize"
+        row3 = await tmp_db.pop_oldest_rerun()
+        assert row3 is None
 
     asyncio.get_event_loop().run_until_complete(run())
