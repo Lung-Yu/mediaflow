@@ -680,3 +680,37 @@ details.task-accordion[open] .accordion-chevron { transform: rotate(90deg); }
   70%  { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* ── Task action buttons ─────────────────────────────────── */
+.btn-sm {
+  font-family: var(--mono);
+  font-size: .68rem;
+  padding: 2px 7px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  cursor: pointer;
+  background: transparent;
+  transition: background var(--transition);
+  line-height: 1.6;
+}
+.btn-danger  { color: var(--red);   border-color: var(--red-dim); }
+.btn-danger:hover  { background: var(--red-dim); }
+.btn-warning { color: var(--amber); border-color: var(--amber-dim); }
+.btn-warning:hover { background: var(--amber-glow); }
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.task-actions select {
+  font-family: var(--mono);
+  font-size: .68rem;
+  background: var(--bg-card-alt);
+  color: var(--text-mid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 4px;
+}

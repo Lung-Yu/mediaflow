@@ -48,4 +48,21 @@
     {% endif %}
     <a class="accordion-link" href="/srts/{{ stem }}">→ 開啟完整逐字稿</a>
   </div>
+  <div class="accordion-actions" style="margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--border);">
+    <form class="task-actions"
+          hx-post="/tasks/{{ stem }}/runs"
+          hx-target="#task-row-{{ stem }}"
+          hx-swap="outerHTML"
+          hx-include="this"
+          hx-confirm="Re-run {{ stem }}?">
+      <span style="font-size:.72rem; color: var(--text-dim);">rerun from:</span>
+      <select name="from_stage">
+        <option value="">full restart</option>
+        <option value="transcribe">transcribe</option>
+        <option value="summarize">summarize</option>
+        <option value="detect_chapters">detect_chapters</option>
+      </select>
+      <button class="btn-sm btn-warning" type="submit">run</button>
+    </form>
+  </div>
 </div>

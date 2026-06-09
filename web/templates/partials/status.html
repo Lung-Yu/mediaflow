@@ -63,11 +63,16 @@
   </div>
   <div class="task-list">
     {% for t in queue %}
-    <div class="task-row">
+    <div class="task-row" id="task-row-{{ t.stem }}">
       <span class="dot dot-queued"></span>
       <span class="task-stem">{{ t.stem }}</span>
       <span class="task-stage"><span class="stage-label">waiting</span></span>
       <span class="task-time">{{ t.filename or '—' }}</span>
+      <button class="btn-sm btn-danger"
+              hx-delete="/tasks/{{ t.stem }}"
+              hx-target="#task-row-{{ t.stem }}"
+              hx-swap="outerHTML"
+              hx-confirm="Cancel {{ t.stem }}?">cancel</button>
     </div>
     {% endfor %}
   </div>
@@ -85,6 +90,7 @@
   <div class="task-list">
     {% for t in recent %}
     <details class="task-accordion"
+             id="task-row-{{ t.stem }}"
              hx-get="/partial/task-detail/{{ t.stem }}"
              hx-trigger="toggle once"
              hx-target="find .accordion-body"
@@ -117,11 +123,24 @@
   </div>
   <div class="task-list">
     {% for t in failed %}
-    <div class="task-row">
+    <div class="task-row" id="task-row-{{ t.stem }}">
       <span class="dot dot-failed"></span>
       <span class="task-stem">{{ t.stem }}</span>
       <span class="task-stage"><span class="stage-label">{{ t.current_stage or '—' }}</span></span>
       <span class="task-time" title="{{ t.error_msg or '' }}">error</span>
+      <form class="task-actions"
+            hx-post="/tasks/{{ t.stem }}/runs"
+            hx-target="#task-row-{{ t.stem }}"
+            hx-swap="outerHTML"
+            hx-include="this"
+            hx-confirm="Re-run {{ t.stem }}?">
+        <select name="from_stage">
+          <option value="">full restart</option>
+          <option value="transcribe">from transcribe</option>
+          <option value="summarize">from summarize</option>
+        </select>
+        <button class="btn-sm btn-warning" type="submit">run</button>
+      </form>
     </div>
     {% endfor %}
   </div>

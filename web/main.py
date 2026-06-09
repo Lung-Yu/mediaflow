@@ -234,6 +234,31 @@ async def cancel_upload_proxy(request: Request, stem: str):
     return RedirectResponse(url="/", status_code=303)
 
 
+@app.post("/tasks/{stem}/runs", response_class=HTMLResponse)
+async def rerun_proxy(request: Request, stem: str):
+    """Dashboard rerun button — proxies to API POST /tasks/{stem}/runs."""
+    from html import escape
+    form = await request.form()
+    from_stage = form.get("from_stage") or None
+    await _post_json(f"/tasks/{stem}/runs", {"from_stage": from_stage})
+    s = escape(stem)
+    return HTMLResponse(
+        f'<div class="task-row" id="task-row-{s}">'
+        f'<span class="dot dot-queued"></span>'
+        f'<span class="task-stem">{s}</span>'
+        f'<span class="task-stage"><span class="stage-label">queued</span></span>'
+        f'</div>'
+    )
+
+
+@app.delete("/tasks/{stem}", response_class=HTMLResponse)
+async def delete_task_web(request: Request, stem: str):
+    """Dashboard cancel button — proxies to API DELETE /tasks/{stem}."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.delete(f"{API_URL}/tasks/{stem}")
+    return HTMLResponse("")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
