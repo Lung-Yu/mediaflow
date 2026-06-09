@@ -66,6 +66,13 @@
     </details>
     {% endif %}
 
+    {# ── Timeline panel ───────────────────────────────────────── #}
+    <div id="timeline-region"
+         hx-get="/partial/timeline/{{ stem }}"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+    </div>
+
     {# ── Transcript ────────────────────────────────────────── #}
     <div id="transcript">
       {% include "partials/srt_rows.html" %}

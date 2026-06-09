@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime
 import httpx
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,6 +12,18 @@ API_URL = os.getenv("API_URL", "http://localhost:8080")
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
+
+
+def _datetimeformat(value):
+    if not value:
+        return "—"
+    try:
+        return datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(value)
+
+
+templates.env.filters["datetimeformat"] = _datetimeformat
 
 
 async def _get(path: str, **params) -> "dict | list":
@@ -86,6 +99,16 @@ async def task_detail_partial(request: Request, stem: str):
             "summary": summary_text,
             "segments": segments[:3],
         },
+    )
+
+
+@app.get("/partial/timeline/{stem}", response_class=HTMLResponse)
+async def timeline_partial(request: Request, stem: str):
+    timeline = await _get(f"/tasks/{stem}/timeline")
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/timeline.html",
+        context={"timeline": timeline if isinstance(timeline, dict) else None},
     )
 
 
