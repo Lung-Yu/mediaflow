@@ -1,6 +1,7 @@
 """SQLite state management for mediaflow API."""
 import aiosqlite
 import os
+import time
 from pathlib import Path
 
 DB_PATH = Path(os.getenv("DB_PATH", "./pipeline.db"))
@@ -31,6 +32,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_stem ON events(stem);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+CREATE TABLE IF NOT EXISTS reruns (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    stem          TEXT NOT NULL,
+    from_stage    TEXT,
+    requested_at  REAL NOT NULL
+);
 """
 
 
@@ -163,3 +171,26 @@ async def get_stage_events(stem: str) -> list:
             (stem,),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def insert_rerun(stem: str, from_stage: "str | None") -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO reruns (stem, from_stage, requested_at) VALUES (?, ?, ?)",
+            (stem, from_stage, time.time()),
+        )
+        await db.commit()
+
+
+async def pop_oldest_rerun() -> "dict | None":
+    """Atomically pop the oldest rerun request. Returns None if queue is empty."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM reruns ORDER BY requested_at ASC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        if row:
+            await db.execute("DELETE FROM reruns WHERE id = ?", (row["id"],))
+            await db.commit()
+        return dict(row) if row else None
