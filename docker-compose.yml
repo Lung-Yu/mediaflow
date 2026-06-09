@@ -59,6 +59,7 @@ services:
     volumes:
       - ./workspace:/workspace:ro          # read-only SRT access (same-machine deploy)
       - ./workspace/1_input:/workspace/1_input  # writable for queue consumer downloads
+      - ./workspace/3_output:/workspace/3_output  # writable for speaker_names.json
       - ./data:/app/data                   # writable dir for pipeline.db
     ports:
       - "8080:8080"
