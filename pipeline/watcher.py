@@ -5,7 +5,11 @@ On new file: strips quarantine attrs, then runs pipeline stages via runner.execu
 On error: renames file to .failed so it is skipped on next restart.
 """
 import logging
+import os
+import sqlite3
 import subprocess
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -59,6 +63,45 @@ def _mark_failed(path: Path) -> None:
         log.error("Could not rename %s to .failed: %s", path.name, exc)
 
 
+def _run_rerun(stem: str, from_stage: "str | None", cfg: dict, pub: EventPublisher) -> None:
+    """Execute a rerun command dispatched from the reruns DB table."""
+    from pipeline.rerun import rerun
+    try:
+        rerun(stem, from_stage or "preprocess", cfg, pub)
+    except Exception as exc:
+        log.error("Rerun FAILED for %s: %s", stem, exc)
+        pub.publish("task.failed", stem, error_msg=str(exc))
+
+
+def _rerun_poller(
+    cfg: dict,
+    pub: EventPublisher,
+    db_path: str,
+    stop_event: threading.Event,
+) -> None:
+    """Poll the reruns table every 2 s and dispatch work to the thread pool."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    log.info("Rerun poller started (db=%s)", db_path)
+    while not stop_event.is_set():
+        try:
+            with conn:
+                cur = conn.execute(
+                    "SELECT * FROM reruns ORDER BY requested_at ASC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    conn.execute("DELETE FROM reruns WHERE id = ?", (row["id"],))
+            if row:
+                log.info("Rerun queued: stem=%s from_stage=%s", row["stem"], row["from_stage"])
+                _executor.submit(_run_rerun, row["stem"], row["from_stage"], cfg, pub)
+        except Exception as exc:
+            log.error("Rerun poller error: %s", exc)
+        time.sleep(2)
+    conn.close()
+    log.info("Rerun poller stopped")
+
+
 class InputHandler(FileSystemEventHandler):
     def __init__(self, cfg: dict, publisher: EventPublisher):
         self._cfg = cfg
@@ -94,6 +137,16 @@ def run():
     input_dir = workspace(cfg, "1_input")
     input_dir.mkdir(parents=True, exist_ok=True)
 
+    db_path = os.getenv("DB_PATH", "./data/pipeline.db")
+    stop_ev = threading.Event()
+    poller = threading.Thread(
+        target=_rerun_poller,
+        args=(cfg, pub, db_path, stop_ev),
+        daemon=True,
+        name="rerun-poller",
+    )
+    poller.start()
+
     handler = InputHandler(cfg, pub)
     observer = Observer()
     observer.schedule(handler, str(input_dir), recursive=False)
@@ -101,7 +154,6 @@ def run():
 
     log.info("Watching %s", input_dir)
 
-    # Recover files already in 1_input/ (handles restart)
     for f in sorted(input_dir.iterdir()):
         if f.name.endswith(".failed"):
             continue
@@ -113,6 +165,7 @@ def run():
         while observer.is_alive():
             observer.join(timeout=1)
     except KeyboardInterrupt:
+        stop_ev.set()
         observer.stop()
 
     observer.join()
