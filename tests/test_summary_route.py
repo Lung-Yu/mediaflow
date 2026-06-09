@@ -3,7 +3,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from fastapi import HTTPException
-import pytest
 
 import api.routes.files as files_module
 
