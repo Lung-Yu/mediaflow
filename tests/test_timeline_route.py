@@ -46,7 +46,6 @@ def test_get_stage_events_returns_stage_completed_events(tmp_db):
 
 def test_get_timeline_returns_404_for_missing_stem(tmp_db):
     import api.routes.tasks as tasks_mod
-    import asyncio
     from unittest.mock import patch
     from fastapi import HTTPException
 
