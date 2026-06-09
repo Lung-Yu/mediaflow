@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir fastapi uvicorn[standard] jinja2 httpx aiofiles
+RUN pip install --no-cache-dir fastapi uvicorn[standard] jinja2 httpx aiofiles python-multipart
 
 COPY web/ ./web/
 

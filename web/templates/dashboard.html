@@ -55,6 +55,35 @@
     }
     tick();
     setInterval(tick, 1000);
+
+    // Preserve expanded accordion state across status-region polls
+    (function() {
+      let saved = {};
+      document.body.addEventListener('htmx:beforeSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'status-region') {
+          saved = {};
+          document.querySelectorAll('details.task-accordion[open]').forEach(function(d) {
+            const key = d.getAttribute('hx-get');
+            const body = d.querySelector('.accordion-body');
+            if (key && body && !body.querySelector('.accordion-loading')) {
+              saved[key] = body.innerHTML;
+            }
+          });
+        }
+      });
+      document.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail.target && e.detail.target.id === 'status-region') {
+          Object.keys(saved).forEach(function(key) {
+            const d = document.querySelector('details.task-accordion[hx-get="' + key + '"]');
+            if (d) {
+              d.open = true;
+              const body = d.querySelector('.accordion-body');
+              if (body) body.innerHTML = saved[key];
+            }
+          });
+        }
+      });
+    })();
   </script>
 </body>
 </html>

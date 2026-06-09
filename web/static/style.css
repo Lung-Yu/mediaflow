@@ -628,17 +628,17 @@ details.task-accordion[open] .accordion-chevron { transform: rotate(90deg); }
 }
 
 .tl-bar-bg {
-  height: 4px;
+  height: 6px;
   background: var(--border-hi);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
-.tl-bar { height: 100%; border-radius: 2px; background: var(--green-dim); }
-.tl-bar-preprocess  { background: var(--amber-dim); }
-.tl-bar-transcribe  { background: var(--blue-dim); }
-.tl-bar-summarize   { background: var(--green-dim); }
-.tl-bar-diarize     { background: #3a2a5a; }
+.tl-bar { height: 100%; border-radius: 3px; background: var(--green); opacity: .45; }
+.tl-bar-preprocess  { background: var(--amber); }
+.tl-bar-transcribe  { background: var(--blue); }
+.tl-bar-summarize   { background: var(--green); }
+.tl-bar-diarize     { background: #8b6fd4; }
 
 .tl-dur {
   font-size: .72rem;

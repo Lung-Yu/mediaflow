@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from datetime import datetime
 import httpx
 from fastapi import FastAPI, Request, Query
@@ -55,6 +56,20 @@ async def _get_text(path: str) -> "str | None":
         return None
 
 
+def _strip_md(text: str) -> str:
+    """Extract plain-text preview from a markdown summary file."""
+    if not text:
+        return ""
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith(">"):
+            continue
+        line = re.sub(r"\*{1,3}|_{1,2}|`{1,3}|~~", "", line)
+        lines.append(line)
+    return " ".join(lines)
+
+
 def _apply_speaker_names(segments: list, names: dict) -> list:
     """Substitute SPEAKER_XX labels with display names in segment text."""
     if not names:
@@ -96,7 +111,7 @@ async def task_detail_partial(request: Request, stem: str):
         context={
             "stem": stem,
             "timeline": timeline if isinstance(timeline, dict) else None,
-            "summary": summary_text,
+            "summary": _strip_md(summary_text) if summary_text else None,
             "segments": segments[:3],
         },
     )
