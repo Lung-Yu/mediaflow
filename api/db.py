@@ -150,3 +150,16 @@ async def delete_task(stem: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM tasks WHERE stem = ?", (stem,))
         await db.commit()
+
+
+async def get_stage_events(stem: str) -> list:
+    """Return stage.completed events for stem ordered by ts ascending."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT stage, ts FROM events "
+            "WHERE stem = ? AND event = 'stage.completed' AND stage IS NOT NULL AND stage != '' "
+            "ORDER BY ts ASC",
+            (stem,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
