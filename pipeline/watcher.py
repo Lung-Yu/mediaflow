@@ -80,11 +80,14 @@ def _rerun_poller(
     stop_event: threading.Event,
 ) -> None:
     """Poll the reruns table every 2 s and dispatch work to the thread pool."""
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
     log.info("Rerun poller started (db=%s)", db_path)
+    conn = None
     while not stop_event.is_set():
         try:
+            if conn is None:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+            row = None
             with conn:
                 cur = conn.execute(
                     "SELECT * FROM reruns ORDER BY requested_at ASC LIMIT 1"
@@ -96,9 +99,16 @@ def _rerun_poller(
                 log.info("Rerun queued: stem=%s from_stage=%s", row["stem"], row["from_stage"])
                 _executor.submit(_run_rerun, row["stem"], row["from_stage"], cfg, pub)
         except Exception as exc:
-            log.error("Rerun poller error: %s", exc)
+            log.warning("Rerun poller: %s — will retry", exc)
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
         time.sleep(2)
-    conn.close()
+    if conn is not None:
+        conn.close()
     log.info("Rerun poller stopped")
 
 
