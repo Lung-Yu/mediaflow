@@ -31,6 +31,17 @@ async def _post_json(path: str, body: dict) -> dict:
         return {}
 
 
+async def _get_text(path: str) -> "str | None":
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{API_URL}{path}")
+            if r.status_code == 200:
+                return r.text
+            return None
+    except Exception:
+        return None
+
+
 def _apply_speaker_names(segments: list, names: dict) -> list:
     """Substitute SPEAKER_XX labels with display names in segment text."""
     if not names:
@@ -56,6 +67,26 @@ async def dashboard(request: Request):
 async def status_partial(request: Request):
     data = await _get("/status/")
     return templates.TemplateResponse(request=request, name="partials/status.html", context=data or {})
+
+
+@app.get("/partial/task-detail/{stem}", response_class=HTMLResponse)
+async def task_detail_partial(request: Request, stem: str):
+    timeline, summary_text, segments = await asyncio.gather(
+        _get(f"/tasks/{stem}/timeline"),
+        _get_text(f"/files/{stem}/summary"),
+        _get(f"/files/{stem}/segments"),
+    )
+    segments = segments if isinstance(segments, list) else []
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/task_detail.html",
+        context={
+            "stem": stem,
+            "timeline": timeline if isinstance(timeline, dict) else None,
+            "summary": summary_text,
+            "segments": segments[:3],
+        },
+    )
 
 
 # ── SRT list ─────────────────────────────────────────────────

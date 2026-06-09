@@ -1,0 +1,51 @@
+{# HTMX partial — expanded accordion body for a completed task #}
+<div class="accordion-content">
+  <div class="accordion-left">
+    <div class="accordion-section-label">摘要</div>
+    <div class="accordion-summary">
+      {%- if summary -%}
+        {{ summary[:220] }}{% if summary | length > 220 %}…{% endif %}
+      {%- else -%}
+        （無摘要）
+      {%- endif -%}
+    </div>
+
+    {% if timeline and timeline.stages %}
+    <div class="accordion-section-label" style="margin-top: .9rem;">各階段耗時</div>
+    {% set dur_values = timeline.stages | selectattr('duration_sec') | map(attribute='duration_sec') | list %}
+    {% set max_dur = (dur_values | max) if dur_values else 1 %}
+    {% for s in timeline.stages %}
+    <div class="tl-row">
+      <span class="tl-stage">{{ s.stage }}</span>
+      <div class="tl-bar-bg">
+        <div class="tl-bar tl-bar-{{ s.stage }}"
+             style="width:{{ (((s.duration_sec or 0) / max_dur) * 100) | int }}%"></div>
+      </div>
+      <span class="tl-dur">
+        {%- if s.duration_sec -%}
+          {%- if s.duration_sec >= 60 -%}{{ (s.duration_sec // 60) | int }}m {{ (s.duration_sec % 60) | int }}s
+          {%- else -%}{{ s.duration_sec }}s{%- endif -%}
+        {%- else -%}—{%- endif -%}
+      </span>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="accordion-right">
+    <div class="accordion-section-label">逐字稿（前幾段）</div>
+    {% if segments %}
+    <div class="accordion-transcript">
+      {% for seg in segments %}
+      <div class="accordion-seg">
+        <span class="srt-ts">{{ seg.start[:8] }}</span>
+        <span class="srt-text">{{ seg.text }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="tl-empty">無逐字稿</div>
+    {% endif %}
+    <a class="accordion-link" href="/srts/{{ stem }}">→ 開啟完整逐字稿</a>
+  </div>
+</div>
