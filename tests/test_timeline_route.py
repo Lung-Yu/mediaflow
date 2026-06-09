@@ -1,8 +1,6 @@
 """Tests for timeline DB helper and route logic."""
 import asyncio
 import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
