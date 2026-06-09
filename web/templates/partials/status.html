@@ -84,14 +84,24 @@
   </div>
   <div class="task-list">
     {% for t in recent %}
-    <div class="task-row">
-      <span class="dot dot-completed"></span>
-      <span class="task-stem">{{ t.stem }}</span>
-      <span class="task-stage"><span class="stage-label">done</span></span>
-      <span class="task-time">
-        {% if t.duration_sec %}{{ "%.0f"|format(t.duration_sec // 60) }}m{% endif %}
-      </span>
-    </div>
+    <details class="task-accordion"
+             hx-get="/partial/task-detail/{{ t.stem }}"
+             hx-trigger="toggle once"
+             hx-target="find .accordion-body"
+             hx-swap="innerHTML">
+      <summary>
+        <span class="dot dot-completed"></span>
+        <span class="task-stem">{{ t.stem }}</span>
+        <span class="task-stage"><span class="stage-label">done</span></span>
+        <span class="task-time">
+          {% if t.duration_sec %}{{ "%.0f"|format(t.duration_sec // 60) }}m{% endif %}
+        </span>
+        <span class="accordion-chevron">▶</span>
+      </summary>
+      <div class="accordion-body">
+        <div class="accordion-loading">loading…</div>
+      </div>
+    </details>
     {% else %}
     <div class="empty">No completions yet</div>
     {% endfor %}
