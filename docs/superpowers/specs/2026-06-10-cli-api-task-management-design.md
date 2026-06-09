@@ -4,7 +4,7 @@
 
 **Goal:** Expose pipeline task submission and management as a REST API so that external automation, AI agents, and scripts can submit files, monitor progress, retry failures, and cancel tasks — all visible and controllable from the web dashboard.
 
-**Architecture:** A `POST /tasks/submit` endpoint copies a local file into `workspace/1_input/` and creates a DB record immediately. Rerun and cancel commands write to a new SQLite `reruns` table. The pipeline watcher polls this table every 2 s on the host and executes the command in its existing thread pool. The Docker/host boundary is bridged through shared SQLite (already mounted) rather than Redis, preserving the existing rule that only `api/mq/consumer.py` touches Redis.
+**Architecture:** A `POST /tasks` endpoint copies a local file into `workspace/1_input/` and creates a DB record immediately. Rerun requests are created via `POST /tasks/{stem}/runs` and written to a new SQLite `reruns` table. The pipeline watcher polls this table every 2 s on the host and executes the command in its existing thread pool. The Docker/host boundary is bridged through shared SQLite (already mounted) rather than Redis, preserving the existing rule that only `api/mq/consumer.py` touches Redis.
 
 **Tech Stack:** FastAPI (api layer), aiosqlite (api DB), sqlite3 sync (watcher polling), HTMX (dashboard buttons), Jinja2 (templates).
 
@@ -26,13 +26,24 @@
 
 ---
 
-## 2. New API Endpoints
+## 2. REST API Design
 
-All endpoints live in the existing `api/routes/tasks.py` router (prefix `/tasks`).
+All endpoints live in `api/routes/tasks.py` (prefix `/tasks`). Follow standard REST conventions: `POST` creates a resource and returns **201 Created**, `DELETE` returns **200** with a confirmation body, errors return the appropriate 4xx with `{"detail": "..."}`.
 
-### 2.1 `POST /tasks/submit`
+### Resource model
 
-Submit a local filesystem path to the pipeline.
+```
+/tasks              collection of pipeline tasks
+/tasks/{stem}       single task resource
+/tasks/{stem}/runs  runs (reruns) sub-collection for a task
+/tasks/{stem}/timeline   (existing) stage timing for a task
+```
+
+---
+
+### 2.1 `POST /tasks` — Create task from local path
+
+Submit a host-local filesystem path to the pipeline. Intended for same-machine callers: automation scripts, AI agents, n8n workflows running on the same Mac mini.
 
 **Request body:**
 ```json
@@ -48,22 +59,27 @@ Submit a local filesystem path to the pipeline.
 3. Check for stem conflict: if an active task exists (status not in `completed/failed/cancelled`), return 409.
 4. Copy file to `workspace/1_input/{filename}` (shutil.copy2).
 5. `upsert_task(stem, filename=..., status="submitted", submitted_at=now)`.
-6. Return `{"stem": stem, "status": "submitted", "filename": filename}`.
+6. Return 201 with task resource.
 
 **Note:** The watcher will also publish `task.submitted` via Redis when it detects the file. The second upsert is idempotent (same stem, same status).
 
-**Response 200:**
+**Response 201:**
 ```json
-{"stem": "recording", "status": "submitted", "filename": "recording.m4a"}
+{
+  "stem": "recording",
+  "filename": "recording.m4a",
+  "status": "submitted",
+  "submitted_at": 1749600000.0
+}
 ```
 
-**Errors:** 404 file not found, 415 unsupported format, 409 stem conflict.
+**Errors:** `404` file not found · `415` unsupported format · `409` stem conflict
 
 ---
 
-### 2.2 `POST /tasks/{stem}/rerun`
+### 2.2 `POST /tasks/{stem}/runs` — Create a new run (rerun)
 
-Queue a rerun via the watcher. Works for both failed and completed tasks.
+Create a new pipeline run for an existing task. Works for both failed and completed tasks. Queues the run via the `reruns` table; the watcher executes it on the host.
 
 **Request body:**
 ```json
@@ -71,35 +87,52 @@ Queue a rerun via the watcher. Works for both failed and completed tasks.
 ```
 `from_stage` is optional. Omit or `null` for a full restart from `preprocess`.
 
-**Valid stage ids:** `preprocess`, `transcribe`, `verify_segments`, `correct_srt`, `diarize`, `summarize`, `detect_chapters`. The endpoint validates the value against `runner.STAGE_RUNNERS.keys()` and returns 422 for unknown stages.
+**Valid stage ids:** `preprocess`, `transcribe`, `verify_segments`, `correct_srt`, `diarize`, `summarize`, `detect_chapters`. The endpoint validates against `runner.STAGE_RUNNERS.keys()` and returns 422 for unknown values.
 
 **Logic:**
-1. Load task from DB; 404 if missing.
-2. Insert row into `reruns` table: `(stem, from_stage, requested_at)`.
-3. `upsert_task(stem, status="submitted", error_msg=None)`.
-4. Return `{"stem": stem, "queued": True, "from_stage": from_stage}`.
+1. Load task from DB; 404 if not found.
+2. Validate `from_stage` if provided.
+3. Insert row into `reruns` table: `(stem, from_stage, requested_at)`.
+4. `upsert_task(stem, status="submitted", error_msg=None)`.
+5. Return 201 with run resource.
 
-**Response 200:**
+**Response 201:**
 ```json
-{"stem": "recording", "queued": true, "from_stage": "summarize"}
+{
+  "stem": "recording",
+  "from_stage": "summarize",
+  "status": "submitted"
+}
 ```
+
+**Errors:** `404` task not found · `422` unknown stage
 
 ---
 
-### 2.3 `DELETE /tasks/{stem}`
+### 2.3 `DELETE /tasks/{stem}` — Delete/cancel task
 
-Cancel a queued task or permanently delete a completed/failed record.
+Cancel a queued task or permanently remove a completed/failed record.
 
 **Logic:**
-1. Load task; 404 if missing.
-2. If `filename` set: iterate `workspace/1_input/` and delete files whose name is `{filename}` or `{filename}.failed`. Do not use broad glob to avoid accidentally matching other stems.
+1. Load task; 404 if not found.
+2. If `filename` set: delete `workspace/1_input/{filename}` and `workspace/1_input/{filename}.failed` if either exists.
 3. Delete DB row via existing `db.delete_task(stem)`.
-4. Return `{"deleted": stem}`.
+4. Return 200 with confirmation.
 
 **Response 200:**
 ```json
 {"deleted": "recording"}
 ```
+
+**Errors:** `404` task not found
+
+---
+
+### 2.4 Existing endpoints (unchanged)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/tasks/{stem}/timeline` | Stage timing for a completed task |
 
 ---
 
@@ -121,15 +154,18 @@ CREATE TABLE IF NOT EXISTS reruns (
 ### 3.2 New DB helpers
 
 ```python
-async def insert_rerun(stem: str, from_stage: str | None) -> None: ...
-async def pop_oldest_rerun() -> dict | None: ...   # DELETE + return in one tx
+async def insert_rerun(stem: str, from_stage: str | None) -> None:
+    """Insert a rerun request into the reruns table."""
+
+async def pop_oldest_rerun() -> dict | None:
+    """Atomically select and delete the oldest pending rerun row."""
 ```
 
-`pop_oldest_rerun` uses a single transaction to prevent double-execution if the watcher restarts mid-poll.
+`pop_oldest_rerun` uses SELECT + DELETE in a single transaction to prevent double-execution if the watcher restarts mid-poll.
 
 ### 3.3 `tasks` table: `cancelled` status
 
-No schema change required — `status TEXT` already accepts any string. The `get_status_overview()` query filters on known statuses and will not surface `cancelled` rows, which is the correct behaviour (cancelled tasks disappear from the active view). Add `cancelled` to `_STATUS_MAP` in `event_processor.py` if needed.
+No schema change required — `status TEXT` already accepts any string. `get_status_overview()` filters on known statuses so cancelled tasks disappear from the active view automatically.
 
 ---
 
@@ -153,7 +189,7 @@ def _run_rerun(stem: str, from_stage: str | None, cfg: dict, pub: EventPublisher
 Runs in a dedicated daemon thread. Uses **synchronous `sqlite3`** (no async) because the watcher is sync.
 `db_path` comes from `os.getenv("DB_PATH", "./pipeline.db")` — same env var as the API container.
 
-Pop is done as SELECT + DELETE in one transaction to prevent double-execution on restart:
+SELECT + DELETE in one transaction prevents double-execution on restart:
 
 ```python
 def _rerun_poller(cfg: dict, pub: EventPublisher, db_path: str, stop_event) -> None:
@@ -177,9 +213,9 @@ def _rerun_poller(cfg: dict, pub: EventPublisher, db_path: str, stop_event) -> N
 
 ### 4.3 `run()` change
 
-`DB_PATH` is read from environment: `db_path = os.getenv("DB_PATH", "./pipeline.db")`.
+`db_path` is read from environment: `os.getenv("DB_PATH", "./pipeline.db")`.
 
-Start the poller thread before the watchdog loop; stop it on `KeyboardInterrupt`:
+Start the poller thread before the watchdog loop, stop it on `KeyboardInterrupt`:
 
 ```python
 import threading, os
@@ -188,8 +224,7 @@ stop_ev = threading.Event()
 poller = threading.Thread(target=_rerun_poller, args=(cfg, pub, db_path, stop_ev), daemon=True)
 poller.start()
 # ... existing observer loop ...
-# on shutdown:
-stop_ev.set()
+stop_ev.set()  # on shutdown
 ```
 
 ---
@@ -199,40 +234,43 @@ stop_ev.set()
 ### 5.1 `web/main.py` — proxy endpoints
 
 ```python
-@app.post("/tasks/{stem}/rerun", response_class=HTMLResponse)
+@app.post("/tasks", response_class=HTMLResponse)
+async def submit_task_proxy(request: Request): ...
+    # POST body → api /tasks, redirect to dashboard on success
+
+@app.post("/tasks/{stem}/runs", response_class=HTMLResponse)
 async def rerun_task_proxy(request: Request, stem: str): ...
-    # POST to api, then return refreshed accordion body
+    # POST to api, return refreshed accordion body via HTMX
 
 @app.delete("/tasks/{stem}", response_class=HTMLResponse)
 async def delete_task_proxy(request: Request, stem: str): ...
-    # DELETE to api, then return empty string (HTMX removes element)
+    # DELETE to api, return empty string so HTMX removes the row
 ```
 
-### 5.2 Dashboard template buttons
+### 5.2 Dashboard action buttons
 
-`web/templates/partials/status.html` gets action buttons on each task row:
+`web/templates/partials/status.html` — action buttons per task status:
 
 | Task status | UI action |
 |-------------|-----------|
-| `submitted` | Cancel button (hx-delete) |
+| `submitted` | Cancel button (`hx-delete`) |
 | `processing` | — (no interrupt) |
 | `failed` | "Retry" button (full rerun) + "Rerun from…" `<select>` |
-| `completed` | "Rerun from…" `<select>` (visible in accordion) |
+| `completed` | "Rerun from…" `<select>` (visible in accordion detail) |
 
-All buttons use HTMX with `hx-confirm` for destructive actions.
+All destructive buttons use HTMX `hx-confirm`.
 
 ---
 
-## 6. Operations Manual
+## 6. Operations Manual (`docs/operations-manual.md`)
 
-A new file `docs/operations-manual.md` is created alongside the implementation. It covers:
+Sections:
 
-1. **Quick start** — three ways to submit a file (file drop, curl, web UI)
-2. **API reference** — every endpoint with request/response examples
-3. **Dashboard guide** — screenshot-annotated walkthrough
-4. **AI Agent / automation integration** — Python snippet, curl one-liners, n8n webhook node example
-5. **Rerun cookbook** — common scenarios (re-generate summary, re-run from transcription after prompt tuning)
-6. **Troubleshooting** — common errors and fixes
+1. **Quick start** — three ways to submit a file (file drop, curl, web UI button)
+2. **API reference** — every endpoint with request/response examples and error codes
+3. **AI Agent / automation integration** — Python snippet, curl one-liners, n8n HTTP Request node example
+4. **Rerun cookbook** — common scenarios: re-generate summary after prompt tuning; re-run from transcription when Whisper settings change; full restart after a failed download
+5. **Troubleshooting** — common errors (409 conflict, 415 unsupported format, watcher not polling reruns) and fixes
 
 ---
 
@@ -240,13 +278,14 @@ A new file `docs/operations-manual.md` is created alongside the implementation. 
 
 New test file `tests/test_task_management.py`:
 
-- `test_submit_valid_path` — happy path submit
+- `test_submit_valid_path` — happy path, returns 201 with task body
 - `test_submit_missing_file` — 404
 - `test_submit_unsupported_format` — 415
 - `test_submit_conflict` — 409 when active task exists
-- `test_rerun_inserts_db_row` — verify `reruns` table row created
+- `test_rerun_inserts_db_row` — 201, `reruns` table row created, task status reset
+- `test_rerun_unknown_stage` — 422
 - `test_rerun_unknown_task` — 404
-- `test_delete_task` — row removed
+- `test_delete_task` — 200, row removed
 - `test_delete_unknown` — 404
 
 ---
