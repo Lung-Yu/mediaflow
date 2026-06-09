@@ -171,7 +171,7 @@ async def save_speaker_names(request: Request, stem: str):
     segments = _apply_speaker_names(segments, names)
     return templates.TemplateResponse(
         request=request,
-        name="partials/srt_rows.html",
+        name="partials/speaker_save_result.html",
         context={"segments": segments, "q": "", "total": len(segments), "stem": stem},
     )
 

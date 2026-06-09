@@ -1,0 +1,6 @@
+{# HTMX response for speaker save:
+   - main content replaces #transcript (srt_rows content)
+   - OOB span updates #save-status indicator #}
+{% include "partials/srt_rows.html" %}
+
+<span id="save-status" hx-swap-oob="true" class="save-success">✓ 已儲存</span>
