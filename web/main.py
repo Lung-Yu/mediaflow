@@ -63,7 +63,11 @@ def _strip_md(text: str) -> str:
     lines = []
     for line in text.splitlines():
         line = line.strip()
-        if not line or line.startswith("#") or line.startswith(">"):
+        if not line:
+            continue
+        if line.startswith(("#", ">", "|", "-|-", "---")):
+            continue
+        if re.match(r"^[-|: ]+$", line):  # table separators / hr
             continue
         line = re.sub(r"\*{1,3}|_{1,2}|`{1,3}|~~", "", line)
         lines.append(line)
