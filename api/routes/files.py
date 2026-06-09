@@ -41,6 +41,15 @@ def get_srt(stem: str):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+# ── Summary text ──────────────────────────────────────────────
+@router.get("/{stem}/summary", response_class=PlainTextResponse)
+def get_summary(stem: str):
+    path = OUTPUT_DIR / f"{stem}_summary.md"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Summary not found")
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
 # ── Parsed segments (JSON) ────────────────────────────────────
 @router.get("/{stem}/segments")
 def get_segments(stem: str, q: str = Query(default="")):
