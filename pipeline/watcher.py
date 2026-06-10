@@ -16,7 +16,10 @@ from pathlib import Path
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from datetime import timedelta
+
 from pipeline.config import load, workspace
+from pipeline.lifecycle import parse_retention, scan_and_expire, safe_unlink
 from pipeline.mq.publisher import EventPublisher
 from pipeline import runner
 
@@ -46,11 +49,15 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         archive_dir.mkdir(parents=True, exist_ok=True)
         path.rename(archive_dir / path.name)
 
-        if cfg.get("pipeline", {}).get("cleanup_wav", False):
-            wav = ctx["audio_path"]
-            if wav.exists():
-                wav.unlink()
-                log.info("Cleaned up %s", wav.name)
+        lc = cfg.get("lifecycle", {})
+        # backward-compat: pipeline.cleanup_wav=true treated as lifecycle.wav=immediate
+        _old_cleanup = cfg.get("pipeline", {}).get("cleanup_wav", False)
+        wav_setting = lc.get("wav") or ("immediate" if _old_cleanup else "keep")
+        if parse_retention(wav_setting) == timedelta(0):
+            safe_unlink(ctx["audio_path"], "wav")
+
+        if parse_retention(lc.get("archive", "forever")) == timedelta(0):
+            safe_unlink(ws / "4_archive" / path.name, "archive")
 
         pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
         log.info("DONE %s", stem)
@@ -119,6 +126,25 @@ def _rerun_poller(
     log.info("Rerun poller stopped")
 
 
+def _lifecycle_poller(cfg: dict, ws: Path, stop_event: threading.Event) -> None:
+    """Hourly scan of 2_processing/ and 4_archive/ for time-based retention rules."""
+    log.info("Lifecycle poller started")
+    while not stop_event.is_set():
+        try:
+            lc = cfg.get("lifecycle", {})
+            wav_ret = parse_retention(lc.get("wav", "keep"))
+            arch_ret = parse_retention(lc.get("archive", "forever"))
+            # Only scan for time-based retention; immediate is handled on-completion
+            if wav_ret is not None and wav_ret.total_seconds() > 0:
+                scan_and_expire(ws / "2_processing", wav_ret, stem_pattern="*_clean.wav")
+            if arch_ret is not None and arch_ret.total_seconds() > 0:
+                scan_and_expire(ws / "4_archive", arch_ret)
+        except Exception as exc:
+            log.warning("Lifecycle poller error: %s", exc)
+        stop_event.wait(3600)
+    log.info("Lifecycle poller stopped")
+
+
 class InputHandler(FileSystemEventHandler):
     def __init__(self, cfg: dict, publisher: EventPublisher):
         self._cfg = cfg
@@ -163,6 +189,14 @@ def run():
         name="rerun-poller",
     )
     poller.start()
+
+    lc_poller = threading.Thread(
+        target=_lifecycle_poller,
+        args=(cfg, Path(cfg["pipeline"]["workspace_dir"]), stop_ev),
+        daemon=True,
+        name="lifecycle-poller",
+    )
+    lc_poller.start()
 
     handler = InputHandler(cfg, pub)
     observer = Observer()
