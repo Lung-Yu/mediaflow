@@ -10,6 +10,7 @@ router = APIRouter(prefix="/files")
 
 WORKSPACE = Path(os.getenv("WORKSPACE_DIR", "./workspace"))
 OUTPUT_DIR = WORKSPACE / "3_output"
+PROCESSING_DIR = WORKSPACE / "2_processing"
 
 
 def _srt_path(stem: str) -> Path:
@@ -50,6 +51,16 @@ def get_summary(stem: str):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+# ── Audio file ────────────────────────────────────────────────
+@router.get("/{stem}/audio")
+def get_audio(stem: str):
+    path = PROCESSING_DIR / f"{stem}_clean.wav"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    from fastapi.responses import FileResponse
+    return FileResponse(path, media_type="audio/wav")
+
+
 # ── Parsed segments (JSON) ────────────────────────────────────
 @router.get("/{stem}/segments")
 def get_segments(stem: str, q: str = Query(default="")):
@@ -64,6 +75,7 @@ def get_segments(stem: str, q: str = Query(default="")):
             "index": s.index,
             "start": s.start,
             "end": s.end,
+            "start_seconds": srtlib.to_seconds(s.start),
             "text": srtlib.highlight(s.text, q) if q else s.text,
         }
         for s in segments
@@ -102,7 +114,8 @@ def get_speaker_names(stem: str):
         except Exception:
             pass
 
-    return {"speakers": speakers, "counts": counts, "names": names}
+    has_audio = (PROCESSING_DIR / f"{stem}_clean.wav").exists()
+    return {"speakers": speakers, "counts": counts, "names": names, "has_audio": has_audio}
 
 
 @router.post("/{stem}/speaker-names")

@@ -9,9 +9,12 @@ import api.routes.files as files_module
 
 def test_get_speaker_names_empty():
     with tempfile.TemporaryDirectory() as tmpdir:
-        with patch.object(files_module, "OUTPUT_DIR", Path(tmpdir)):
+        with (
+            patch.object(files_module, "OUTPUT_DIR", Path(tmpdir)),
+            patch.object(files_module, "PROCESSING_DIR", Path(tmpdir)),
+        ):
             result = files_module.get_speaker_names("test")
-    assert result == {"speakers": [], "counts": {}, "names": {}}
+    assert result == {"speakers": [], "counts": {}, "names": {}, "has_audio": False}
 
 
 def test_get_speaker_names_reads_diarization_json():
