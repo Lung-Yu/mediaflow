@@ -84,15 +84,15 @@ wav_retention = parse_retention(lc.get("wav", cfg.get("pipeline", {}).get("clean
 archive_retention = parse_retention(lc.get("archive", "forever"))
 
 if wav_retention == timedelta(0):       # "immediate"
-    _safe_unlink(ctx["audio_path"], "wav")
+    safe_unlink(ctx["audio_path"], "wav")
 
 if archive_retention == timedelta(0):   # "immediate"
     # File is already renamed into 4_archive/ at this point; delete the archived copy.
     # rerun.py will not find the original after this — full restart would re-run preprocess.
-    _safe_unlink(ws / "4_archive" / path.name, "archive")
+    safe_unlink(ws / "4_archive" / path.name, "archive")
 ```
 
-`_safe_unlink(path, label)` — tries `path.unlink()`, catches `FileNotFoundError`, logs at DEBUG.
+`safe_unlink(path, label)` — tries `path.unlink()`, catches `FileNotFoundError`, logs at DEBUG.
 
 ### 3b. `_lifecycle_poller` thread
 
