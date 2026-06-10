@@ -49,3 +49,10 @@ def highlight(text: str, query: str) -> str:
         return text
     pattern = re.compile(re.escape(query), re.IGNORECASE)
     return pattern.sub(lambda m: f"<mark>{m.group()}</mark>", text)
+
+
+def to_seconds(ts: str) -> float:
+    """Convert SRT timestamp 'HH:MM:SS,mmm' or 'HH:MM:SS.mmm' to float seconds."""
+    ts = ts.replace(",", ".")
+    h, m, rest = ts.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(rest)
