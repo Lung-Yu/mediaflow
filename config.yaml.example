@@ -10,7 +10,6 @@ pipeline:
     - .wav
     - .flac
   recording_type: auto             # auto | course | meeting | general
-  cleanup_wav: false               # delete 2_processing/_clean.wav after success (saves ~200 MB/file; disables rerun-from-transcribe)
   stages:
     - id: preprocess
       enabled: true
@@ -68,6 +67,19 @@ api:
 
 notification:
   webhook_url: ""   # optional: POST on task completion (n8n, Slack, ntfy, etc.)
+
+lifecycle:
+  # Retention policy for each data tier.
+  # Values: "immediate" | "Nd" (e.g. "30d", "90d") | "forever" (default for all)
+  # "immediate" = delete as soon as the pipeline stage that produced it completes.
+  # Restart watcher after editing.
+  wav:          immediate   # 2_processing/_clean.wav (~200 MB/file, regenerable via preprocess)
+  archive:      30d         # 4_archive/ originals  — set "forever" if no other backup exists
+  output:       forever     # 3_output/ SRT + summaries — small; "forever" recommended
+  minio_input:  7d          # mediaflow-input MinIO bucket TTL (uploaded originals)
+  minio_output: 90d         # mediaflow-output MinIO bucket TTL (output backups)
+  # Note: enabling wav=immediate + archive=immediate means rerun-from-transcribe
+  # or rerun-from-preprocess will require re-uploading the original file.
 
 minio:
   endpoint: localhost:9000
