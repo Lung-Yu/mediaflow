@@ -13,7 +13,7 @@ from api.lifecycle import parse_retention
 from api.reconcile import reconcile
 from api.mq import consumer
 from api.mq import queue_consumer
-from api.routes import events, files, status, tasks, upload
+from api.routes import events, files, stats, status, tasks, upload
 
 
 @asynccontextmanager
@@ -63,6 +63,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 app.include_router(events.router)
 app.include_router(files.router)
+app.include_router(stats.router)
 app.include_router(status.router)
 app.include_router(tasks.router)
 app.include_router(upload.router)

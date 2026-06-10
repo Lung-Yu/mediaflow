@@ -110,6 +110,21 @@ async def get_status_overview() -> dict:
     return {"processing": processing, "queue": queue, "recent": recent, "failed": failed}
 
 
+async def get_task_aggregates() -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_sec), 0), "
+            "SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) "
+            "FROM tasks"
+        )
+        row = await cur.fetchone()
+        return {
+            "total_tasks": row[0] or 0,
+            "total_duration_sec": float(row[1] or 0),
+            "completed": row[2] or 0,
+        }
+
+
 async def get_task(stem: str) -> "dict | None":
     """Return task row as dict, or None if not found."""
     async with aiosqlite.connect(DB_PATH) as db:
