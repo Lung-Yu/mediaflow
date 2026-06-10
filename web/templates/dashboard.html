@@ -23,6 +23,13 @@
       </div>
     </header>
 
+    {# Stats panel — loaded once on page open #}
+    <div id="stats-region"
+         hx-get="/partial/stats"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+    </div>
+
     {# Polled region — HTMX refreshes every 5 s #}
     <div id="status-region"
          hx-get="/partial/status"

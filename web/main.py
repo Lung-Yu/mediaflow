@@ -101,6 +101,22 @@ async def status_partial(request: Request):
     return templates.TemplateResponse(request=request, name="partials/status.html", context=data or {})
 
 
+@app.get("/partial/stats", response_class=HTMLResponse)
+async def stats_partial(request: Request):
+    overview, keywords = await asyncio.gather(
+        _get("/stats/overview"),
+        _get("/stats/keywords"),
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/stats.html",
+        context={
+            "overview": overview if isinstance(overview, dict) else {},
+            "keywords": keywords if isinstance(keywords, list) else [],
+        },
+    )
+
+
 @app.get("/partial/task-detail/{stem}", response_class=HTMLResponse)
 async def task_detail_partial(request: Request, stem: str):
     timeline, summary_text, segments = await asyncio.gather(
