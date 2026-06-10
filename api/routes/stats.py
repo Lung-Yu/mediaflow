@@ -17,10 +17,13 @@ def _speaker_totals(output_dir: Path) -> list[dict]:
     totals: dict[str, float] = {}
     for path in output_dir.glob("*_diarization.json"):
         try:
-            segs = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            segs = data if isinstance(data, list) else []
         except Exception:
             continue
         for seg in segs:
+            if not isinstance(seg, dict):
+                continue
             sp = seg.get("speaker", "")
             if sp:
                 totals[sp] = totals.get(sp, 0.0) + (seg.get("end", 0) - seg.get("start", 0))
@@ -38,8 +41,10 @@ def _keyword_counts(output_dir: Path) -> list[dict]:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        for seg in data.get("topic_segments", []):
-            topic = seg.get("topic", "").strip()
+        for seg in (data.get("topic_segments") or []):
+            if not isinstance(seg, dict):
+                continue
+            topic = (seg.get("topic") or "").strip()
             if topic:
                 counts[topic] = counts.get(topic, 0) + 1
     return [
