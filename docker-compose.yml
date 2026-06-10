@@ -56,6 +56,9 @@ services:
       - UPLOAD_MAX_FILE_BYTES=${UPLOAD_MAX_FILE_BYTES:-5368709120}
       - UPLOAD_PART_SIZE_BYTES=${UPLOAD_PART_SIZE_BYTES:-104857600}
       - UPLOAD_MAX_CONCURRENT=${UPLOAD_MAX_CONCURRENT:-2}
+      - LIFECYCLE_OUTPUT=${LIFECYCLE_OUTPUT:-forever}
+      - LIFECYCLE_MINIO_INPUT=${LIFECYCLE_MINIO_INPUT:-forever}
+      - LIFECYCLE_MINIO_OUTPUT=${LIFECYCLE_MINIO_OUTPUT:-forever}
     volumes:
       - ./workspace:/workspace:ro          # read-only SRT access (same-machine deploy)
       - ./workspace/1_input:/workspace/1_input  # writable for queue consumer downloads

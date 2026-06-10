@@ -120,6 +120,20 @@ class MinIOClient:
         )
         return self._rewrite_url(url)
 
+    def set_bucket_lifecycle(self, bucket: str, days: int) -> None:
+        """Set S3 expiration lifecycle rule on bucket. Idempotent — safe to call on every startup."""
+        self._s3.put_bucket_lifecycle_configuration(
+            Bucket=bucket,
+            LifecycleConfiguration={
+                "Rules": [{
+                    "ID": "mediaflow-auto-expire",
+                    "Status": "Enabled",
+                    "Filter": {"Prefix": ""},
+                    "Expiration": {"Days": days},
+                }]
+            },
+        )
+
 
 _client: Optional[MinIOClient] = None
 
