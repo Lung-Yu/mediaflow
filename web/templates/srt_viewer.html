@@ -18,6 +18,19 @@
       </nav>
     </header>
 
+    {# ── Audio player (only when WAV is available for this stem) #}
+    {% if has_audio %}
+    <div class="audio-bar" id="audio-bar">
+      <button class="audio-play-btn" id="play-btn" onclick="togglePlay()">▶</button>
+      <div class="audio-seek-track" id="seek-track" onclick="seekClick(event)">
+        <div class="audio-seek-fill" id="seek-fill"></div>
+        <div class="audio-seek-thumb" id="seek-thumb"></div>
+      </div>
+      <span class="audio-time" id="audio-time">0:00 / 0:00</span>
+      <audio id="player" src="/files/{{ stem }}/audio" preload="metadata"></audio>
+    </div>
+    {% endif %}
+
     {# ── Viewer header ─────────────────────────────────────── #}
     <div class="viewer-header">
       <div class="viewer-stem">{{ stem }}</div>
@@ -85,5 +98,66 @@
     </footer>
 
   </div>
+  {% if has_audio %}
+  <script>
+    (function () {
+      const player = document.getElementById('player');
+      const playBtn = document.getElementById('play-btn');
+      const seekFill = document.getElementById('seek-fill');
+      const seekThumb = document.getElementById('seek-thumb');
+      const timeLabel = document.getElementById('audio-time');
+
+      function fmt(s) {
+        if (!isFinite(s)) return '0:00';
+        const m = Math.floor(s / 60);
+        return m + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+      }
+
+      function togglePlay() {
+        player.paused ? player.play() : player.pause();
+      }
+      window.togglePlay = togglePlay;
+
+      player.addEventListener('play',  () => playBtn.textContent = '⏸');
+      player.addEventListener('pause', () => playBtn.textContent = '▶');
+
+      player.addEventListener('timeupdate', function () {
+        const pct = player.duration ? (player.currentTime / player.duration) * 100 : 0;
+        seekFill.style.width  = pct + '%';
+        seekThumb.style.left  = pct + '%';
+        timeLabel.textContent = fmt(player.currentTime) + ' / ' + fmt(player.duration);
+
+        const t = player.currentTime;
+        const segs = document.querySelectorAll('.srt-seg[data-start]');
+        let active = null;
+        for (let i = 0; i < segs.length; i++) {
+          const start = parseFloat(segs[i].dataset.start);
+          const end   = i + 1 < segs.length ? parseFloat(segs[i + 1].dataset.start) : Infinity;
+          segs[i].classList.remove('srt-playing');
+          if (t >= start && t < end) active = segs[i];
+        }
+        if (active) {
+          active.classList.add('srt-playing');
+          active.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+
+      function seekClick(e) {
+        if (!player.duration) return;
+        const rect = document.getElementById('seek-track').getBoundingClientRect();
+        player.currentTime = ((e.clientX - rect.left) / rect.width) * player.duration;
+      }
+      window.seekClick = seekClick;
+
+      // Event delegation — works after HTMX search swaps #transcript
+      document.getElementById('transcript').addEventListener('click', function (e) {
+        const seg = e.target.closest('.srt-seg[data-start]');
+        if (!seg) return;
+        player.currentTime = parseFloat(seg.dataset.start);
+        player.play();
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

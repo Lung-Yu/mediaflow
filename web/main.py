@@ -165,6 +165,7 @@ async def srt_viewer(request: Request, stem: str, q: str = ""):
     speaker_data = speaker_data if isinstance(speaker_data, dict) else {}
     names = speaker_data.get("names", {})
     segments = _apply_speaker_names(segments, names)
+    has_audio = bool(speaker_data.get("has_audio", False)) if isinstance(speaker_data, dict) else False
     return templates.TemplateResponse(
         request=request,
         name="srt_viewer.html",
@@ -174,6 +175,7 @@ async def srt_viewer(request: Request, stem: str, q: str = ""):
             "q": q,
             "total": len(segments),
             "speaker_data": speaker_data,
+            "has_audio": has_audio,
         },
     )
 

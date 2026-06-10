@@ -11,7 +11,8 @@
 
 <div class="srt-body">
   {% for seg in segments %}
-  <div class="srt-seg {% if q %}srt-match{% endif %}">
+  <div class="srt-seg {% if q %}srt-match{% endif %}"
+       {% if seg.start_seconds is defined %}data-start="{{ seg.start_seconds }}"{% endif %}>
     <span class="srt-ts">{{ seg.start[:8] }}</span>
     <span class="srt-text">{{ seg.text | safe }}</span>
   </div>

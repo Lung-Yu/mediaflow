@@ -800,3 +800,76 @@ details.task-accordion[open] .accordion-chevron { transform: rotate(90deg); }
   padding: .2rem .55rem;
   border-radius: 10px;
 }
+
+/* ── Audio player bar ─────────────────────────────────────────── */
+.audio-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--bg-card-alt);
+  padding: .6rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.audio-play-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--green);
+  color: #000;
+  font-size: .8rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.audio-play-btn:hover { opacity: .85; }
+
+.audio-seek-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-card-alt);
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+}
+
+.audio-seek-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 3px;
+  width: 0;
+  pointer-events: none;
+}
+
+.audio-seek-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  background: var(--text);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.audio-time {
+  font-size: .72rem;
+  color: var(--text-mid);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.srt-seg.srt-playing {
+  background: var(--green-dim);
+  border-left-color: var(--green);
+}
+
+.srt-seg[data-start] { cursor: pointer; }
