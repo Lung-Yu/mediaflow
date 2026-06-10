@@ -45,6 +45,13 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         archive_dir = ws / "4_archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
         path.rename(archive_dir / path.name)
+
+        if cfg.get("pipeline", {}).get("cleanup_wav", False):
+            wav = ctx["audio_path"]
+            if wav.exists():
+                wav.unlink()
+                log.info("Cleaned up %s", wav.name)
+
         pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
         log.info("DONE %s", stem)
 

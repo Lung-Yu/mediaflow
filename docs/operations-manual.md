@@ -265,6 +265,18 @@ curl -X POST http://localhost:8080/tasks/STEM/runs \
 
 ---
 
+## Log locations
+
+| Process | Log path | How to watch |
+|---------|----------|-------------|
+| Pipeline watcher (host) | `data/logs/watcher.log` | `tail -f data/logs/watcher.log` |
+| API container | stdout → `docker logs mediaflow_api_1` | `docker logs -f mediaflow_api_1` |
+| Web container | stdout → `docker logs mediaflow_web_1` | `docker logs -f mediaflow_web_1` |
+
+The watcher log shows per-stage progress (`stage.started preprocess`, `stage.completed transcribe`, etc.) and is the fastest way to see what the pipeline is doing at any moment.
+
+---
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
@@ -276,3 +288,4 @@ curl -X POST http://localhost:8080/tasks/STEM/runs \
 | `422 Unknown stage` | Typo in `from_stage` | Valid values: `preprocess`, `transcribe`, `verify_segments`, `correct_srt`, `diarize`, `summarize`, `detect_chapters` |
 | Rerun queued but nothing happens | Watcher not running, or `DB_PATH` env var mismatch | Start `bash scripts/start-pipeline.sh`; verify `DB_PATH` matches the mounted `data/pipeline.db` |
 | Dashboard cancel button does nothing | Web container not rebuilt after code change | `docker compose build web && docker compose up -d web` |
+| `rerun-from-transcribe` fails with FileNotFoundError | `cleanup_wav: true` was set; WAV was deleted on completion | Use full restart (`from_stage` omitted) so FFmpeg regenerates the WAV |

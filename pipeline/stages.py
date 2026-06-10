@@ -93,13 +93,18 @@ def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path
 
     service_url = cfg["whisper"]["service_url"].rstrip("/")
     language = cfg["whisper"].get("language", "zh")
+    initial_prompt = cfg["whisper"].get("initial_prompt", "") or ""
+
+    params = {"language": language}
+    if initial_prompt:
+        params["initial_prompt"] = initial_prompt
 
     try:
         with open(audio_path, "rb") as f:
             resp = httpx.post(
                 f"{service_url}/transcribe_segments",
                 files={"audio": (audio_path.name, f)},
-                params={"language": language},
+                params=params,
                 timeout=1800.0,
             )
         resp.raise_for_status()

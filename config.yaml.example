@@ -10,6 +10,7 @@ pipeline:
     - .wav
     - .flac
   recording_type: auto             # auto | course | meeting | general
+  cleanup_wav: false               # delete 2_processing/_clean.wav after success (saves ~200 MB/file; disables rerun-from-transcribe)
   stages:
     - id: preprocess
       enabled: true
@@ -46,6 +47,11 @@ diarization:
 whisper:
   service_url: http://localhost:9001
   language: zh
+  # initial_prompt: warm up Whisper with domain vocabulary to improve accuracy.
+  # Leave empty ("") or omit to disable. Restart watcher after editing.
+  # Example for Java/Spring courses:
+  # initial_prompt: "日誌 Actuator MDC Spring Boot SpringBoot Logger SLF4J Logback AOP IoC DI Bean JPA Hibernate Maven Gradle JVM GC"
+  initial_prompt: ""
 
 ollama:
   service_url: http://localhost:11434
