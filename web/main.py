@@ -3,8 +3,8 @@ import os
 import re
 from datetime import datetime
 import httpx
-from fastapi import FastAPI, Request, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, Query, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -194,6 +194,28 @@ async def srt_partial(request: Request, stem: str, q: str = Query(default="")):
         request=request,
         name="partials/srt_rows.html",
         context={"segments": segments, "q": q, "total": len(segments), "stem": stem},
+    )
+
+
+@app.get("/files/{stem}/audio")
+async def audio_proxy(request: Request, stem: str):
+    range_header = request.headers.get("range")
+    headers = {"Range": range_header} if range_header else {}
+    async with httpx.AsyncClient(timeout=None) as client:
+        api_resp = await client.get(
+            f"{API_URL}/files/{stem}/audio",
+            headers=headers,
+        )
+    if api_resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    return Response(
+        content=api_resp.content,
+        status_code=api_resp.status_code,
+        media_type=api_resp.headers.get("content-type", "audio/wav"),
+        headers={
+            k: v for k, v in api_resp.headers.items()
+            if k.lower() in {"content-length", "content-range", "accept-ranges"}
+        },
     )
 
 

@@ -88,7 +88,7 @@
     </div>
 
     {# ── Transcript ────────────────────────────────────────── #}
-    <div id="transcript">
+    <div id="transcript"{% if has_audio %} class="has-audio"{% endif %}>
       {% include "partials/srt_rows.html" %}
     </div>
 

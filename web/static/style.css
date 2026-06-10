@@ -872,4 +872,4 @@ details.task-accordion[open] .accordion-chevron { transform: rotate(90deg); }
   border-left-color: var(--green);
 }
 
-.srt-seg[data-start] { cursor: pointer; }
+.has-audio .srt-seg[data-start] { cursor: pointer; }
