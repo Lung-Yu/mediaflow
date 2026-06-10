@@ -1,5 +1,4 @@
 """Unit tests for audio file API additions."""
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch

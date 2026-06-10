@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from api import srt as srtlib
 
 router = APIRouter(prefix="/files")
@@ -57,7 +57,6 @@ def get_audio(stem: str):
     path = PROCESSING_DIR / f"{stem}_clean.wav"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Audio not found")
-    from fastapi.responses import FileResponse
     return FileResponse(path, media_type="audio/wav")
 
 
