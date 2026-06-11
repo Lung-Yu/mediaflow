@@ -4,6 +4,13 @@ Audio recording pipeline → transcript → knowledge base.
 
 Processes audio/video recordings through Whisper transcription, publishes events via Redis Streams, and serves results through a web dashboard.
 
+**Features**
+- Drag-and-drop upload or file-drop pipeline with live progress dashboard
+- Whisper transcription → optional LLM correction → speaker diarization → summarization → chapter detection
+- SRT transcript viewer with **audio playback** — click any line to jump to that moment, auto-scroll highlight as audio plays
+- **Analytics panel**: aggregate counts, per-speaker time breakdown, keyword trends across all recordings
+- REST API for automation and AI agent integration
+
 ## Architecture
 
 ```

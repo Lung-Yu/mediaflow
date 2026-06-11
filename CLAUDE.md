@@ -307,6 +307,9 @@ CREATE TABLE events (
 | P4-4 | Speaker enrollment (voiceprint library) | `diarize/service.py` (`/embed`), `pipeline/enroll.py`, `pipeline/stages.py` (`diarize`) |
 | P5   | Mermaid architecture diagram | CLAUDE.md System Architecture |
 
+| — | Analytics panel (dashboard stats + speaker bar + keyword trends) | `api/routes/stats.py`, `web/templates/partials/stats.html` |
+| — | Audio player in SRT viewer (click-to-seek, auto-highlight) | `web/templates/srt_viewer.html`, `api/routes/files.py` (`/audio`) |
+
 ### ❌ Not Yet Implemented
 
 Nothing remaining — all planned phases complete.

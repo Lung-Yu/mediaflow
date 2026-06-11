@@ -149,6 +149,68 @@ curl http://localhost:8080/status/ | python3 -m json.tool
 
 ---
 
+### Stats
+
+#### `GET /stats/overview` — Aggregate counts + speaker breakdown
+
+Returns task totals from the DB and per-speaker duration aggregated across all `*_diarization.json` files in `workspace/3_output/`.
+
+```bash
+curl http://localhost:8080/stats/overview | python3 -m json.tool
+```
+
+```json
+{
+  "total_tasks": 42,
+  "total_duration_sec": 170580.0,
+  "success_rate": 0.976,
+  "speakers": [
+    {"label": "SPEAKER_00", "seconds": 82000.1, "pct": 0.481},
+    {"label": "SPEAKER_01", "seconds": 52000.3, "pct": 0.305}
+  ]
+}
+```
+
+`total_duration_sec` is the sum of `duration_sec` from the tasks table. If tasks pre-date duration tracking, this will be 0 for those records.
+
+---
+
+#### `GET /stats/keywords` — Top topics across all recordings
+
+Scans all `*_summary.json` files in `workspace/3_output/`, counts occurrences of each `topic_segments[].topic`, returns top 10 sorted by frequency.
+
+```bash
+curl http://localhost:8080/stats/keywords | python3 -m json.tool
+```
+
+```json
+[
+  {"topic": "機器學習", "count": 14},
+  {"topic": "反向傳播", "count": 9}
+]
+```
+
+---
+
+### Audio
+
+#### `GET /files/{stem}/audio` — Serve processed WAV
+
+Returns the cleaned WAV from `workspace/2_processing/{stem}_clean.wav`. Supports HTTP Range requests (required for browser `<audio>` seeking). Returns 404 if the WAV doesn't exist (e.g. deleted by lifecycle policy).
+
+```bash
+# Download audio
+curl http://localhost:8080/files/lecture01/audio -o lecture01.wav
+
+# Fetch a 64 KB chunk (browser seeking)
+curl -H "Range: bytes=0-65535" http://localhost:8080/files/lecture01/audio -o chunk.wav
+# → 206 Partial Content, Content-Range: bytes 0-65535/<total>
+```
+
+The web dashboard proxies this endpoint at `http://localhost:3000/files/{stem}/audio` and uses it to drive the in-browser audio player in the SRT viewer.
+
+---
+
 ### Upload (browser multipart — MinIO backed)
 
 | Endpoint | Method | Description |
