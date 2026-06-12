@@ -10,13 +10,22 @@ from api.webhook import notify
 
 log = logging.getLogger(__name__)
 
-_STATUS_MAP = {
-    "task.submitted":  "submitted",
-    "stage.started":   "processing",
-    "stage.completed": "processing",
-    "task.completed":  "completed",
-    "task.failed":     "failed",
+_STAGE_STATUS = {
+    "preprocess":      "preprocessing",
+    "transcribe":      "transcribing",
+    "verify_segments": "verifying",
+    "correct_srt":     "correcting",
+    "diarize":         "diarizing",
+    "summarize":       "summarizing",
+    "detect_chapters": "detecting_chapters",
 }
+
+_EVENT_STATUS = {
+    "task.submitted": "submitted",
+    "task.completed": "completed",
+    "task.failed":    "failed",
+}
+
 _TERMINAL = {"task.completed", "task.failed"}
 
 
@@ -30,8 +39,16 @@ async def process_event(fields: dict) -> str:
     stem = str(fields.get("stem", ""))
     ts = float(fields.get("ts") or time.time())
 
-    new_status = _STATUS_MAP.get(event, "processing")
-    task_fields: dict = {"status": new_status}
+    if event == "stage.started":
+        new_status = _STAGE_STATUS.get(fields.get("stage", ""), "processing")
+    elif event == "stage.completed":
+        new_status = None  # keep current status until next stage.started
+    else:
+        new_status = _EVENT_STATUS.get(event, "processing")
+
+    task_fields: dict = {}
+    if new_status is not None:
+        task_fields["status"] = new_status
 
     if fields.get("filename"):
         task_fields["filename"] = fields["filename"]
@@ -79,4 +96,4 @@ async def process_event(fields: dict) -> str:
         except Exception as exc:
             log.warning("MinIO output backup failed for %s: %s", stem, exc)
 
-    return new_status
+    return new_status if new_status is not None else "processing"
