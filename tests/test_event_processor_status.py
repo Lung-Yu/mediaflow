@@ -105,3 +105,39 @@ def test_unknown_stage_started_falls_back_to_processing():
     importlib.reload(ep)
     status = _run(ep.process_event(_event("stage.started", stage="unknown_future_stage")))
     assert status == "processing"
+
+
+def test_get_status_overview_includes_transcribing_tasks():
+    import importlib
+    import api.db as db_mod
+    import api.event_processor as ep
+    importlib.reload(ep)
+    importlib.reload(db_mod)
+
+    # Task enters transcribing state
+    _run(ep.process_event(_event("task.submitted", filename="a.m4a")))
+    _run(ep.process_event(_event("stage.started", stage="transcribe")))
+
+    overview = _run(db_mod.get_status_overview())
+    assert any(t["stem"] == "s1" for t in overview["processing"]), \
+        "transcribing task must appear in processing list"
+
+
+def test_get_status_overview_includes_all_active_stages():
+    import importlib
+    import api.db as db_mod
+    import api.event_processor as ep
+    importlib.reload(ep)
+    importlib.reload(db_mod)
+
+    active_stages = [
+        "preprocess", "transcribe", "verify_segments",
+        "correct_srt", "diarize", "summarize", "detect_chapters",
+    ]
+    for stage in active_stages:
+        _run(ep.process_event(_event("stage.started", stem=stage, stage=stage)))
+
+    overview = _run(db_mod.get_status_overview())
+    stems_in_processing = {t["stem"] for t in overview["processing"]}
+    for stage in active_stages:
+        assert stage in stems_in_processing, f"stem={stage} (stage status) missing from processing"

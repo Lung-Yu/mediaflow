@@ -87,8 +87,13 @@ async def get_status_overview() -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
+        _active = (
+            "'processing',"          # legacy rows from before per-stage status
+            "'preprocessing','transcribing','verifying',"
+            "'correcting','diarizing','summarizing','detecting_chapters'"
+        )
         cur = await db.execute(
-            "SELECT * FROM tasks WHERE status = 'processing' ORDER BY started_at DESC"
+            f"SELECT * FROM tasks WHERE status IN ({_active}) ORDER BY started_at DESC"
         )
         processing = [dict(r) for r in await cur.fetchall()]
 
@@ -139,7 +144,11 @@ async def count_active_tasks() -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT COUNT(*) FROM tasks "
-            "WHERE status IN ('downloading','queued','submitted','processing')"
+            "WHERE status IN ("
+            "  'downloading','queued','submitted','processing',"
+            "  'preprocessing','transcribing','verifying',"
+            "  'correcting','diarizing','summarizing','detecting_chapters'"
+            ")"
         )
         row = await cur.fetchone()
         return row[0] if row else 0
