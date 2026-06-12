@@ -26,8 +26,6 @@ def test_heartbeat_thread_starts_and_stops(tmp_path, caplog):
     audio = tmp_path / "audio.wav"
     audio.write_bytes(b"RIFF" + b"\x00" * 36)
 
-    threads_before = set(t.name for t in threading.enumerate())
-
     with patch("pipeline.stages.httpx.post", return_value=mock_resp), \
          caplog.at_level(logging.INFO, logger="pipeline.stages"):
         transcribe(audio, "s1", tmp_path, _make_cfg())
