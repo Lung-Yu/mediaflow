@@ -10,6 +10,7 @@ pipeline:
     - .wav
     - .flac
   recording_type: auto             # auto | course | meeting | general
+  # stop_after_stage: transcribe   # stop after this stage — skip all later stages (e.g. skip summarize)
   stages:
     - id: preprocess
       enabled: true

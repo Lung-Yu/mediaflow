@@ -43,7 +43,8 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
     }
 
     try:
-        ctx = runner.execute(cfg, ctx, pub)
+        stop_after = cfg.get("pipeline", {}).get("stop_after_stage")
+        ctx = runner.execute(cfg, ctx, pub, stop_after=stop_after)
 
         archive_dir = ws / "4_archive"
         archive_dir.mkdir(parents=True, exist_ok=True)

@@ -123,10 +123,14 @@ def execute(
     ctx: dict,
     pub: EventPublisher,
     from_stage: Optional[str] = None,
+    stop_after: Optional[str] = None,
 ) -> dict:
     """Run enabled pipeline stages in config order.
 
     from_stage: skip all stages before this id (used by rerun.py).
+    stop_after: halt after this stage completes — later stages are skipped.
+                If the named stage is disabled it never runs, so the break
+                never fires and all other enabled stages run normally.
     ctx must contain: stem, workspace, output_dir.
     Pre-populate audio_path/srt_path when skipping earlier stages.
     """
@@ -157,5 +161,8 @@ def execute(
         pub.publish("stage.started", ctx["stem"], stage=sid)
         ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
         pub.publish("stage.completed", ctx["stem"], stage=sid, **extra)
+        if stop_after and sid == stop_after:
+            log.info("stop_after_stage=%s reached, halting pipeline", stop_after)
+            break
 
     return ctx
