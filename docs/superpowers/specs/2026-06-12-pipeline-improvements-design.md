@@ -17,7 +17,7 @@ Four operational problems were identified during a 3-hour recording ingest:
 
 ---
 
-## Item A — `transcribing` status in `/status`
+## Item A — Per-stage status in `/status`
 
 ### Problem
 
@@ -26,37 +26,68 @@ Four operational problems were identified during a 3-hour recording ingest:
 - `started_at` is only set on `stage.started/preprocess`, leaving it NULL during transcription
 - If the API Redis consumer has any lag, the task briefly has `current_stage=preprocess (already done)` with no forward progress signal
 
-There is no distinct status to differentiate "in Ollama" from "in Whisper", making it impossible to tell at a glance that a 35-minute block is transcription.
+More broadly, all stages collapse into the single `processing` status — there is no way to tell from `/status` alone whether a task is in FFmpeg, Whisper, or Ollama.
 
 ### Design
 
-Add a `transcribing` value to `tasks.status`.
+Map every `stage.started` event to a stage-specific gerund status. `stage.completed` keeps the same status (does not retreat to a generic value) — the status advances only when the *next* `stage.started` arrives. This means the last-seen status always reflects the most recent known stage.
 
-**`api/event_processor.py`** — extend `_STATUS_MAP` and add stage-specific branching:
+**Status value set:**
+
+| Event | Status |
+|-------|--------|
+| `task.submitted` | `submitted` |
+| `stage.started / preprocess` | `preprocessing` |
+| `stage.started / transcribe` | `transcribing` |
+| `stage.started / verify_segments` | `verifying` |
+| `stage.started / correct_srt` | `correcting` |
+| `stage.started / diarize` | `diarizing` |
+| `stage.started / summarize` | `summarizing` |
+| `stage.started / detect_chapters` | `detecting_chapters` |
+| `stage.completed / <any>` | *(keep current — no status change)* |
+| `task.completed` | `completed` |
+| `task.failed` | `failed` |
+
+**`api/event_processor.py`** — replace the flat `_STATUS_MAP` approach with a stage lookup:
 
 ```python
-_STATUS_MAP = {
-    "task.submitted":  "submitted",
-    "stage.started":   "processing",   # default; overridden below for transcribe
-    "stage.completed": "processing",
-    "task.completed":  "completed",
-    "task.failed":     "failed",
+_STAGE_STATUS = {
+    "preprocess":      "preprocessing",
+    "transcribe":      "transcribing",
+    "verify_segments": "verifying",
+    "correct_srt":     "correcting",
+    "diarize":         "diarizing",
+    "summarize":       "summarizing",
+    "detect_chapters": "detecting_chapters",
 }
+
+_EVENT_STATUS = {
+    "task.submitted": "submitted",
+    "task.completed": "completed",
+    "task.failed":    "failed",
+}
+
+# In process_event():
+if event == "stage.started":
+    new_status = _STAGE_STATUS.get(fields.get("stage", ""), "processing")
+elif event == "stage.completed":
+    new_status = None   # no status update on completion
+else:
+    new_status = _EVENT_STATUS.get(event, "processing")
+
+if new_status is not None:
+    task_fields["status"] = new_status
 ```
 
-After computing `new_status`, override for transcription start:
+**`api/db.py`** — `get_status_overview()` queries all active statuses:
 
 ```python
-if event == "stage.started" and fields.get("stage") == "transcribe":
-    new_status = "transcribing"
-```
+_ACTIVE_STATUSES = (
+    "'preprocessing','transcribing','verifying',"
+    "'correcting','diarizing','summarizing','detecting_chapters'"
+)
 
-When `stage.completed/transcribe` arrives, `_STATUS_MAP` maps it back to `"processing"` — no change needed there.
-
-**`api/db.py`** — `get_status_overview()` includes `transcribing` in the processing query:
-
-```python
-"SELECT * FROM tasks WHERE status IN ('processing', 'transcribing') ORDER BY started_at DESC"
+f"SELECT * FROM tasks WHERE status IN ({_ACTIVE_STATUSES}) ORDER BY started_at DESC"
 ```
 
 No schema migration required (SQLite stores status as TEXT with no enum constraint).
@@ -187,7 +218,7 @@ The named stage must be a valid stage ID. If `stop_after_stage` names a disabled
 
 | Item | Files | Lines (est.) | Restart |
 |------|-------|-------------|---------|
-| A: transcribing status | `api/event_processor.py`, `api/db.py` | ~5 | api container |
+| A: per-stage status | `api/event_processor.py`, `api/db.py` | ~20 | api container |
 | B: heartbeat log | `pipeline/stages.py` | ~12 | watcher |
 | C: PID lock | `scripts/start-pipeline.sh` | ~10 | — |
 | D: stop_after_stage | `pipeline/runner.py`, `pipeline/watcher.py`, `config.yaml.example` | ~8 | watcher |
