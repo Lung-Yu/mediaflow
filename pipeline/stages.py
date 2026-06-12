@@ -12,6 +12,8 @@ import json
 import logging
 import re
 import subprocess
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,24 +101,35 @@ def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path
     if initial_prompt:
         params["initial_prompt"] = initial_prompt
 
+    _t0 = time.monotonic()
+    _stop = threading.Event()
+
+    def _heartbeat():
+        while not _stop.wait(60):
+            log.info("transcription in progress: %s (%.0fs elapsed)", stem, time.monotonic() - _t0)
+
+    threading.Thread(target=_heartbeat, daemon=True, name=f"hb-{stem}").start()
     try:
-        with open(audio_path, "rb") as f:
-            resp = httpx.post(
-                f"{service_url}/transcribe_segments",
-                files={"audio": (audio_path.name, f)},
-                params=params,
-                timeout=1800.0,
+        try:
+            with open(audio_path, "rb") as f:
+                resp = httpx.post(
+                    f"{service_url}/transcribe_segments",
+                    files={"audio": (audio_path.name, f)},
+                    params=params,
+                    timeout=1800.0,
+                )
+            resp.raise_for_status()
+        except httpx.ConnectError:
+            raise RuntimeError(
+                f"Cannot reach Whisper service at {service_url}. "
+                "Start it before running the pipeline."
             )
-        resp.raise_for_status()
-    except httpx.ConnectError:
-        raise RuntimeError(
-            f"Cannot reach Whisper service at {service_url}. "
-            "Start it before running the pipeline."
-        )
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"Whisper service error {exc.response.status_code}: {exc.response.text[:300]}"
-        ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"Whisper service error {exc.response.status_code}: {exc.response.text[:300]}"
+            ) from exc
+    finally:
+        _stop.set()
 
     segments = resp.json().get("segments", [])
     # Filter empty segments before saving — keeps positional alignment with the SRT.
