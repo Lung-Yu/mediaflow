@@ -20,4 +20,4 @@ source venv/bin/activate
 pip install -q -r requirements.txt
 
 echo "Starting mediaflow pipeline watcher (foreground)..."
-python -m pipeline.watcher
+exec python -m pipeline.watcher

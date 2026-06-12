@@ -21,7 +21,11 @@ _VALID_STAGES = frozenset({
     "preprocess", "transcribe", "verify_segments", "correct_srt",
     "diarize", "summarize", "detect_chapters",
 })
-_ACTIVE_STATUSES = {"pending", "downloading", "queued", "submitted", "processing"}
+_ACTIVE_STATUSES = {
+    "pending", "downloading", "queued", "submitted", "processing",
+    "preprocessing", "transcribing", "verifying", "correcting",
+    "diarizing", "summarizing", "detecting_chapters",
+}
 
 
 def _stem_from_filename(filename: str) -> str:
