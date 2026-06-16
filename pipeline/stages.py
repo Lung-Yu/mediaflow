@@ -27,16 +27,59 @@ log = logging.getLogger(__name__)
 
 # ── Stage 1: Preprocessing ──────────────────────────────────────────────────
 
+def _vocal_separation(input_path: Path, proc_dir: Path, cfg: dict) -> Path:
+    """Run Demucs htdemucs vocal separation; return path to vocals WAV.
+
+    Requires demucs installed in venv-diarize (has torch).
+    Falls back to input_path on error so the pipeline can continue.
+    """
+    pre_cfg   = cfg.get("preprocessing", {})
+    demucs_bin = pre_cfg.get(
+        "demucs_bin",
+        str(Path(__file__).parent.parent / "venv-diarize" / "bin" / "demucs"),
+    )
+    tmp_dir = proc_dir / "_demucs_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [demucs_bin,
+             "-n", "htdemucs",
+             "--two-stems=vocals",
+             "-o", str(tmp_dir),
+             str(input_path)],
+            check=True, capture_output=True, timeout=7200,
+        )
+        # Demucs default output: tmp_dir/htdemucs/<input_stem>/vocals.wav
+        vocals = tmp_dir / "htdemucs" / input_path.stem / "vocals.wav"
+        if not vocals.exists():
+            found = list(tmp_dir.rglob("vocals.wav"))
+            if not found:
+                raise FileNotFoundError(f"vocals.wav not found under {tmp_dir}")
+            vocals = found[0]
+        log.info("vocal separation done: %s", vocals.name)
+        return vocals
+    except Exception as exc:
+        log.warning("vocal separation failed (%s) — continuing without it", exc)
+        return input_path
+
+
 def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
     """Speech-enhancement pipeline + 16 kHz mono WAV.
 
-    Filter chain (same as production automate/pipeline):
+    Optional first pass: Demucs vocal separation (preprocessing.vocal_separation: true).
+    Then ffmpeg filter chain:
       aformat → highpass → afftdn → anlmdn → speechnorm →
       equalizer → loudnorm → dynaudnorm → silenceremove
     """
     proc_dir = workspace / "2_processing"
     proc_dir.mkdir(parents=True, exist_ok=True)
     out = proc_dir / f"{input_path.stem}_clean.wav"
+
+    pre_cfg = cfg.get("preprocessing", {})
+    source  = input_path
+    if pre_cfg.get("vocal_separation", False):
+        log.info("preprocess: running Demucs vocal separation (slow — CPU)…")
+        source = _vocal_separation(input_path, proc_dir, cfg)
 
     af = (
         "aformat=channel_layouts=mono:sample_rates=16000,"
@@ -51,7 +94,7 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
     )
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(input_path), "-af", af,
+            ["ffmpeg", "-y", "-i", str(source), "-af", af,
              "-ar", "16000", "-ac", "1", "-vn", str(out)],
             check=True, capture_output=True, timeout=600,
         )

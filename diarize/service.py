@@ -119,9 +119,15 @@ def _cluster(embeddings: list, num_speakers: Optional[int], max_auto: int) -> tu
     if n == 1:
         labels = [0] * len(X)
     else:
-        labels = AgglomerativeClustering(
-            n_clusters=n, metric="cosine", linkage="average"
-        ).fit_predict(X).tolist()
+        try:
+            from sklearn.cluster import SpectralClustering
+            labels = SpectralClustering(
+                n_clusters=n, affinity="cosine", assign_labels="kmeans", random_state=42
+            ).fit_predict(X).tolist()
+        except Exception:
+            labels = AgglomerativeClustering(
+                n_clusters=n, metric="cosine", linkage="average"
+            ).fit_predict(X).tolist()
     cluster_embs: dict = {}
     for i, lbl in enumerate(labels):
         cluster_embs.setdefault(lbl, []).append(X[i])
@@ -212,18 +218,28 @@ def _process_diarize(
             info = sf.info(str(wav_path))
             segs = [{"start": 0.0, "end": info.duration}]
 
-        # Sample segments for large files to avoid O(N) ffmpeg calls.
-        # With 885 Whisper segments, embed every 3rd segment (≈295 embeddings).
-        stride = max(1, len(segs) // 300)
-        sampled = segs[::stride]
+        # Sliding windows with fixed time step for uniform temporal coverage.
+        # Segment-based sampling over-samples speakers with many short utterances.
+        audio_info = sf.info(str(wav_path))
+        total_dur = audio_info.duration
+        WINDOW_DUR = 2.0   # seconds per window
+        WINDOW_STEP = 5.0  # seconds between window starts
+
+        windows = []
+        t = 0.0
+        while t + WINDOW_DUR <= total_dur:
+            windows.append({"start": t, "end": t + WINDOW_DUR})
+            t += WINDOW_STEP
+        if not windows:
+            windows = [{"start": 0.0, "end": total_dur}]
 
         embeddings = []
-        valid_idx = []
-        for i, seg in enumerate(sampled):
-            emb = _embed_segment(encoder, wav_path, seg["start"], seg["end"])
+        valid_windows = []
+        for w in windows:
+            emb = _embed_segment(encoder, wav_path, w["start"], w["end"])
             if emb is not None:
                 embeddings.append(emb)
-                valid_idx.append(i)
+                valid_windows.append(w)
 
         if not embeddings:
             return {"segments": []}
@@ -233,23 +249,28 @@ def _process_diarize(
         library = json.loads(library_json) if library_json else []
         cluster_names = _match_clusters_to_library(cluster_embs, library, match_threshold)
 
-        sampled_with_labels = [
-            {"speaker": cluster_names[labels[j]],
-             "start": sampled[valid_idx[j]]["start"],
-             "end": sampled[valid_idx[j]]["end"]}
-            for j in range(len(labels))
+        window_labels = [
+            {"speaker": cluster_names[labels[i]],
+             "start": valid_windows[i]["start"],
+             "end": valid_windows[i]["end"]}
+            for i in range(len(labels))
         ]
 
-        def _nearest_speaker(start: float) -> str:
-            if not sampled_with_labels:
-                return "SPEAKER_00"
-            return min(
-                sampled_with_labels,
-                key=lambda s: abs(s["start"] - start)
-            )["speaker"]
+        def _overlap_speaker(seg_start: float, seg_end: float) -> str:
+            """Assign speaker by overlap-weighted vote from windows."""
+            votes: dict = {}
+            for w in window_labels:
+                overlap = max(0.0, min(seg_end, w["end"]) - max(seg_start, w["start"]))
+                if overlap > 0:
+                    votes[w["speaker"]] = votes.get(w["speaker"], 0.0) + overlap
+            if not votes:
+                seg_mid = (seg_start + seg_end) / 2
+                nearest = min(window_labels, key=lambda w: abs((w["start"] + w["end"]) / 2 - seg_mid))
+                return nearest["speaker"]
+            return max(votes, key=votes.get)
 
         result = [
-            {"speaker": _nearest_speaker(seg["start"]),
+            {"speaker": _overlap_speaker(seg["start"], seg["end"]),
              "start": seg["start"],
              "end": seg["end"]}
             for seg in segs
