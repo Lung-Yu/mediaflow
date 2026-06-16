@@ -35,6 +35,10 @@ chapters:
   min_silence_sec: 30.0            # minimum silence gap to be a chapter boundary
   max_chapters: 8                  # cap on total chapters generated
 
+preprocessing:
+  vocal_separation: false          # set true to run Demucs htdemucs before ffmpeg (CPU, slow ~2-3x realtime)
+  # demucs_bin: ./venv-diarize/bin/demucs   # override path if demucs lives elsewhere
+
 diarization:
   service_url: http://localhost:9003
   num_speakers: null               # set to known count for better accuracy (e.g. 2)
