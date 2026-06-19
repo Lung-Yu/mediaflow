@@ -3,13 +3,13 @@
 #
 # Usage:
 #   scripts/ctl.sh status
-#   scripts/ctl.sh start   [all|docker|watcher|diarize]
-#   scripts/ctl.sh stop    [all|docker|watcher|diarize]
-#   scripts/ctl.sh restart [all|docker|watcher|diarize|api|web]
+#   scripts/ctl.sh start   [all|docker|watcher|whisper|diarize]
+#   scripts/ctl.sh stop    [all|docker|watcher|whisper|diarize]
+#   scripts/ctl.sh restart [all|docker|watcher|whisper|diarize|api|web]
 #   scripts/ctl.sh rebuild [all|docker|api|web]
-#   scripts/ctl.sh logs    [api|web|redis|watcher|diarize]
+#   scripts/ctl.sh logs    [api|web|redis|watcher|whisper|diarize]
 #
-# 'all'    = docker containers + watcher  (default for start/stop/restart)
+# 'all'    = docker containers + whisper + watcher  (default for start/stop/restart)
 # 'docker' = api + web + redis containers only
 # 'diarize' must be started explicitly (optional, heavy model)
 
@@ -103,6 +103,9 @@ do_status() {
         | while IFS= read -r line; do _info "$line"; done
 
     _head "Native processes"
+    _is_running "whisper" \
+        && _ok  "whisper   pid=$(cat "$(_pid_file whisper)")" \
+        || _fail "whisper   not running  →  ctl.sh start whisper"
     _is_running "watcher" \
         && _ok  "watcher   pid=$(cat "$(_pid_file watcher)")" \
         || _fail "watcher   not running  →  ctl.sh start watcher"
@@ -111,13 +114,14 @@ do_status() {
         || _info "diarize   not running  →  ctl.sh start diarize  (optional)"
 
     _head "Health"
-    _http_ok http://localhost:8080/health && _ok "api    :8080" || _fail "api    :8080"
-    _http_ok http://localhost:3000/health && _ok "web    :3000" || _fail "web    :3000"
-    _http_ok http://localhost:9003/health && _ok "diarize:9003" || _info "diarize:9003  (optional)"
+    _http_ok http://localhost:8080/health          && _ok "api    :8080" || _fail "api    :8080"
+    _http_ok http://localhost:3000/health          && _ok "web    :3000" || _fail "web    :3000"
+    _http_ok http://localhost:9001/health          && _ok "whisper:9001" || _fail "whisper:9001"
+    _http_ok http://localhost:9000/minio/health/live && _ok "minio  :9000  (console :9002)" || _fail "minio  :9000"
+    _http_ok http://localhost:9003/health          && _ok "diarize:9003" || _info "diarize:9003  (optional)"
 
     _head "External (not managed here)"
-    _http_ok http://localhost:9001/health  && _ok "whisper :9001" || _fail "whisper :9001  (start separately)"
-    _http_ok http://localhost:11434/api/tags && _ok "ollama  :11434" || _fail "ollama  :11434  (ollama serve)"
+    _http_ok http://localhost:11434/api/tags && _ok "ollama :11434" || _fail "ollama :11434  (ollama serve)"
 }
 
 do_start() {
@@ -131,11 +135,25 @@ do_start() {
         _wait_ready http://localhost:3000/health "web :3000"
     fi
 
+    if [[ "$svc" == "all" || "$svc" == "whisper" ]]; then
+        _head "Starting Whisper service"
+        if [[ ! -d venv-whisper ]]; then
+            _info "Creating venv-whisper and installing mlx-whisper..."
+            python3 -m venv venv-whisper
+            venv-whisper/bin/pip install --quiet -r whisper/requirements.txt
+        fi
+        _start_bg whisper venv-whisper/bin/uvicorn whisper.service:app --host 0.0.0.0 --port 9001
+    fi
+
     if [[ "$svc" == "all" || "$svc" == "watcher" ]]; then
         _head "Starting pipeline watcher"
-        [[ -f venv/bin/activate ]] || { _fail "venv not found — run: python3 -m venv venv && pip install -r requirements.txt"; exit 1; }
+        if [[ ! -f venv/bin/activate ]]; then
+            _info "venv not found — creating..."
+            python3 -m venv venv
+        fi
         # shellcheck disable=SC1091
         source venv/bin/activate
+        pip install -q -r requirements.txt
         _start_bg watcher python -m pipeline.watcher
     fi
 
@@ -155,6 +173,9 @@ do_stop() {
 
     if [[ "$svc" == "all" || "$svc" == "watcher" ]]; then
         _stop_proc watcher
+    fi
+    if [[ "$svc" == "all" || "$svc" == "whisper" ]]; then
+        _stop_proc whisper
     fi
     if [[ "$svc" == "all" || "$svc" == "diarize" ]]; then
         _stop_proc diarize
@@ -202,8 +223,10 @@ do_rebuild() {
         _wait_ready http://localhost:8080/health "api :8080"
         _wait_ready http://localhost:3000/health "web :3000"
         _head "Restarting watcher"
+        [[ -f venv/bin/activate ]] || python3 -m venv venv
         # shellcheck disable=SC1091
         source venv/bin/activate
+        pip install -q -r requirements.txt
         _start_bg watcher python -m pipeline.watcher
         return
     fi
@@ -216,8 +239,10 @@ do_rebuild() {
         $COMPOSE up -d "$svc"
         [[ "$svc" == "api" ]] && _wait_ready http://localhost:8080/health "api :8080"
         [[ "$svc" == "web" ]] && _wait_ready http://localhost:3000/health "web :3000"
+        [[ -f venv/bin/activate ]] || python3 -m venv venv
         # shellcheck disable=SC1091
         source venv/bin/activate
+        pip install -q -r requirements.txt
         _start_bg watcher python -m pipeline.watcher
         ;;
     *) _fail "rebuild target must be: all, docker, api, web"; exit 1 ;;
@@ -229,6 +254,7 @@ do_logs() {
     case "$svc" in
         api|web|redis) $COMPOSE logs -f "$svc" ;;
         watcher)       tail -f "$LOG_DIR/watcher.log" ;;
+        whisper)       tail -f "$LOG_DIR/whisper.log" ;;
         diarize)       tail -f "$LOG_DIR/diarize.log" ;;
         *) _fail "unknown service: $svc"; exit 1 ;;
     esac
