@@ -10,12 +10,12 @@ from api.db.queries import (
     init,
     upsert_job,
     get_job,
-    insert_event,
+    insert_event as _insert_event_q,
     get_status_overview as _get_status_overview_q,
     count_active_jobs,
     get_dag_flow,
-    get_task_aggregates,
-    get_stage_events,
+    get_task_aggregates as _get_task_aggregates_q,
+    get_stage_events as _get_stage_events_q,
 )
 
 __all__ = [
@@ -23,6 +23,8 @@ __all__ = [
     "count_active_jobs", "get_dag_flow", "get_task_aggregates", "get_stage_events",
     # legacy shims below
     "upsert_task", "get_task", "count_active_tasks",
+    "delete_task", "get_upload_queue", "get_oldest_pending",
+    "insert_rerun", "pop_oldest_rerun",
 ]
 
 
@@ -32,10 +34,35 @@ def _get_pool():
     return app.state.pool
 
 
-# ── New pool-aware shim for get_status_overview ──────────────────────────────
+# ── Pool-aware shims for functions the plan re-exports with no-arg signature ─
 
 async def get_status_overview() -> dict:
     return await _get_status_overview_q(_get_pool())
+
+
+async def get_task_aggregates() -> dict:
+    return await _get_task_aggregates_q(_get_pool())
+
+
+async def get_stage_events(stem: str) -> list:
+    return await _get_stage_events_q(_get_pool(), stem)
+
+
+async def insert_event(stem: str, event: str = "", **kwargs) -> None:
+    """Legacy shim: translate old (stem, event, **kwargs) API to new queries.insert_event."""
+    pool = _get_pool()
+    stage = str(kwargs.get("stage") or event or "")
+    raw_status = str(kwargs.get("status") or "")
+    status = raw_status if raw_status in ("started", "success", "failed") else None
+    await _insert_event_q(
+        pool,
+        job_id=stem,
+        stage=stage or "_",
+        status=status,
+        error_msg=kwargs.get("error_msg"),
+        payload=kwargs.get("payload"),
+        ts=kwargs.get("ts"),
+    )
 
 
 # ── Legacy shims — same names as old api/db.py ──────────────────────────────
@@ -45,6 +72,24 @@ async def upsert_task(stem: str, **kwargs) -> None:
     kw = dict(kwargs)
     if "filename" not in kw:
         kw["filename"] = stem
+    # Remove columns not in the new jobs table
+    kw.pop("duration_sec", None)
+    kw.pop("minio_output_prefix", None)
+    # Map legacy status values to ones accepted by the CHECK constraint
+    if "status" in kw:
+        status_map = {
+            "pending":            "submitted",
+            "downloading":        "queued",
+            "queued":             "queued",
+            "preprocessing":      "processing",
+            "transcribing":       "processing",
+            "verifying":          "processing",
+            "correcting":         "processing",
+            "diarizing":          "processing",
+            "summarizing":        "processing",
+            "detecting_chapters": "processing",
+        }
+        kw["status"] = status_map.get(kw["status"], kw["status"])
     await upsert_job(_get_pool(), stem, **kw)
 
 
@@ -54,3 +99,43 @@ async def get_task(stem: str) -> dict | None:
 
 async def count_active_tasks() -> int:
     return await count_active_jobs(_get_pool())
+
+
+async def delete_task(stem: str) -> None:
+    await _get_pool().execute("DELETE FROM jobs WHERE id = $1", stem)
+
+
+async def get_upload_queue() -> list:
+    """All upload-originated tasks (minio_input_key IS NOT NULL), newest first."""
+    rows = await _get_pool().fetch(
+        "SELECT * FROM jobs WHERE minio_input_key IS NOT NULL ORDER BY submitted_at DESC"
+    )
+    results = []
+    for r in rows:
+        d = dict(r)
+        d.setdefault("stem", d.get("id"))  # callers expect 'stem' key
+        results.append(d)
+    return results
+
+
+async def get_oldest_pending() -> dict | None:
+    """Return the oldest submitted task with minio_input_key, or None."""
+    row = await _get_pool().fetchrow(
+        "SELECT * FROM jobs WHERE status = 'submitted' AND minio_input_key IS NOT NULL "
+        "ORDER BY submitted_at ASC LIMIT 1"
+    )
+    if row:
+        d = dict(row)
+        d.setdefault("stem", d.get("id"))
+        return d
+    return None
+
+
+async def insert_rerun(stem: str, from_stage: str | None) -> None:
+    """Stub: reruns table not in v2 schema — rerun routing handled by queue consumer."""
+    pass
+
+
+async def pop_oldest_rerun() -> dict | None:
+    """Stub: reruns table not in v2 schema."""
+    return None

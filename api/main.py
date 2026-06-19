@@ -3,6 +3,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,10 +17,16 @@ from api.mq import consumer
 from api.mq import queue_consumer
 from api.routes import events, files, stats, status, tasks, upload
 
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://mediaflow:changeme@localhost:5432/mediaflow",
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.init()
+    app.state.pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    await db.init(app.state.pool)
     await reconcile()
 
     minio_mod.init_client()
@@ -56,6 +64,7 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+    await app.state.pool.close()
 
 
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
