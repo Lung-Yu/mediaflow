@@ -15,6 +15,10 @@ class OllamaLLMProvider(LLMProvider):
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
         )
+        # Dict access kept for consistency with pipeline/stages.py (_ollama_chat).
+        # ollama >= 0.4.0 returns a ChatResponse object that supports both
+        # subscript (resp["message"]["content"]) and attribute (resp.message.content)
+        # access; we prefer subscript to match the module-level usage in stages.py.
         return resp["message"]["content"]
 
 

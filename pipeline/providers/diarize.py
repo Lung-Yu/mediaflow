@@ -21,7 +21,7 @@ class SpeechbrainDiarizeProvider(DiarizeProvider):
             data: dict = {"segments": json.dumps([
                 {"start": s["start"], "end": s["end"]} for s in segments
             ])}
-            if num_speakers:
+            if num_speakers is not None:
                 data["num_speakers"] = str(num_speakers)
             resp = httpx.post(
                 f"{self.service_url}/diarize",
@@ -55,7 +55,7 @@ class PyannoteDiarizeProvider(DiarizeProvider):
     ) -> list[dict]:
         self._load()
         kwargs: dict = {}
-        if num_speakers:
+        if num_speakers is not None:
             kwargs["num_speakers"] = num_speakers
         diarization = self._pipeline(str(audio_path), **kwargs)
         result = []

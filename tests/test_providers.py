@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -25,7 +26,7 @@ def test_diarize_provider_is_abstract():
         DiarizeProvider()
 
 
-def test_get_whisper_provider_mlx(monkeypatch):
+def test_get_whisper_provider_mlx():
     from pipeline.providers import get_whisper_provider
     from pipeline.providers.whisper import MlxWhisperProvider
     p = get_whisper_provider({"provider": "mlx-whisper", "language": "zh", "model": "medium"})
@@ -45,11 +46,23 @@ def test_get_llm_provider_ollama():
     assert isinstance(p, OllamaLLMProvider)
 
 
+def test_get_llm_provider_unknown_raises():
+    from pipeline.providers import get_llm_provider
+    with pytest.raises(ValueError, match="Unknown LLM provider"):
+        get_llm_provider({"provider": "does-not-exist"})
+
+
 def test_get_diarize_provider_speechbrain():
     from pipeline.providers import get_diarize_provider
     from pipeline.providers.diarize import SpeechbrainDiarizeProvider
     p = get_diarize_provider({"provider": "speechbrain", "num_speakers": None})
     assert isinstance(p, SpeechbrainDiarizeProvider)
+
+
+def test_get_diarize_provider_unknown_raises():
+    from pipeline.providers import get_diarize_provider
+    with pytest.raises(ValueError, match="Unknown diarize provider"):
+        get_diarize_provider({"provider": "does-not-exist"})
 
 
 # ── Task 2: MlxWhisperProvider implementation tests ─────────────────────────
@@ -84,10 +97,30 @@ def test_mlx_whisper_raises_on_http_error(audio_path):
     fake_resp = MagicMock()
     fake_resp.status_code = 500
     fake_resp.text = "internal error"
-    fake_resp.raise_for_status.side_effect = Exception("HTTP 500")
+    fake_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "HTTP 500", request=MagicMock(), response=fake_resp
+    )
     with patch("httpx.post", return_value=fake_resp):
-        with pytest.raises(Exception):
+        with pytest.raises(httpx.HTTPStatusError):
             provider.transcribe_segments(audio_path, "zh")
+
+
+def test_faster_whisper_calls_transcribe_segments(audio_path):
+    from pipeline.providers.whisper import FasterWhisperProvider
+    cfg = {"service_url": "http://localhost:9001", "language": "zh", "model": "medium"}
+    provider = FasterWhisperProvider(cfg)
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = {"segments": [
+        {"id": 0, "start": 0.0, "end": 2.0, "text": "你好",
+         "avg_logprob": -0.3, "no_speech_prob": 0.1}
+    ]}
+    with patch("httpx.post", return_value=fake_resp) as mock_post:
+        result = provider.transcribe_segments(audio_path, "zh")
+    assert mock_post.called
+    url_called = mock_post.call_args[0][0]
+    assert "/transcribe_segments" in url_called
+    assert result[0]["text"] == "你好"
 
 
 # ── Task 3: OllamaLLMProvider + OpenAILLMProvider tests ─────────────────────

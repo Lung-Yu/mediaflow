@@ -6,7 +6,9 @@ from pathlib import Path
 from .base import WhisperProvider
 
 
-class MlxWhisperProvider(WhisperProvider):
+class _HttpWhisperProvider(WhisperProvider):
+    """Base for providers using the Whisper HTTP service (shared HTTP API)."""
+
     def __init__(self, config: dict):
         self.service_url = config.get("service_url", "http://localhost:9001")
         self.language = config.get("language", "zh")
@@ -41,40 +43,12 @@ class MlxWhisperProvider(WhisperProvider):
         return resp.json()["segments"]
 
 
-class FasterWhisperProvider(WhisperProvider):
-    """faster-whisper backend — identical HTTP API to mlx-whisper."""
+class MlxWhisperProvider(_HttpWhisperProvider):
+    """mlx-whisper backend — Apple Silicon GPU, http service on :9001."""
 
-    def __init__(self, config: dict):
-        self.service_url = config.get("service_url", "http://localhost:9001")
-        self.language = config.get("language", "zh")
-        self.model = config.get("model", "medium")
-        self.initial_prompt = config.get("initial_prompt", "")
-        self.timeout = float(config.get("timeout_sec", 1800))
 
-    def transcribe_segments(self, audio_path: Path, language: str) -> list[dict]:
-        with open(audio_path, "rb") as f:
-            params: dict = {"language": language or self.language}
-            if self.initial_prompt:
-                params["initial_prompt"] = self.initial_prompt
-            resp = httpx.post(
-                f"{self.service_url}/transcribe_segments",
-                files={"audio": (audio_path.name, f)},
-                params=params,
-                timeout=self.timeout,
-            )
-        resp.raise_for_status()
-        return resp.json()["segments"]
-
-    def transcribe_large(self, audio_path: Path, language: str) -> list[dict]:
-        with open(audio_path, "rb") as f:
-            resp = httpx.post(
-                f"{self.service_url}/transcribe_large",
-                files={"audio": (audio_path.name, f)},
-                params={"language": language or self.language},
-                timeout=self.timeout,
-            )
-        resp.raise_for_status()
-        return resp.json()["segments"]
+class FasterWhisperProvider(_HttpWhisperProvider):
+    """faster-whisper backend — CPU/CUDA, http service on :9001."""
 
 
 class OpenAIWhisperProvider(WhisperProvider):
