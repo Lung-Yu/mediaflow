@@ -30,12 +30,12 @@
          hx-swap="innerHTML">
     </div>
 
-    {# Polled region — HTMX refreshes every 5 s #}
-    <div id="status-region"
-         hx-get="/partial/status"
-         hx-trigger="every 5s"
+    {# Job list — HTMX loads on page open and refreshes every 30 s #}
+    <div id="job-list"
+         hx-get="/partial/jobs"
+         hx-trigger="load, every 30s"
          hx-swap="innerHTML">
-      {% include "partials/status.html" %}
+      Loading…
     </div>
 
     {# Upload queue panel — polled every 10 s #}
@@ -47,7 +47,7 @@
 
     <footer>
       <span>mediaflow pipeline monitor</span>
-      <span>auto-refresh every 5 s</span>
+      <span>auto-refresh every 30 s</span>
     </footer>
 
   </div>
@@ -63,34 +63,6 @@
     tick();
     setInterval(tick, 1000);
 
-    // Preserve expanded accordion state across status-region polls
-    (function() {
-      let saved = {};
-      document.body.addEventListener('htmx:beforeSwap', function(e) {
-        if (e.detail.target && e.detail.target.id === 'status-region') {
-          saved = {};
-          document.querySelectorAll('details.task-accordion[open]').forEach(function(d) {
-            const key = d.getAttribute('hx-get');
-            const body = d.querySelector('.accordion-body');
-            if (key && body && !body.querySelector('.accordion-loading')) {
-              saved[key] = body.innerHTML;
-            }
-          });
-        }
-      });
-      document.body.addEventListener('htmx:afterSwap', function(e) {
-        if (e.detail.target && e.detail.target.id === 'status-region') {
-          Object.keys(saved).forEach(function(key) {
-            const d = document.querySelector('details.task-accordion[hx-get="' + key + '"]');
-            if (d) {
-              d.open = true;
-              const body = d.querySelector('.accordion-body');
-              if (body) body.innerHTML = saved[key];
-            }
-          });
-        }
-      });
-    })();
   </script>
 </body>
 </html>

@@ -56,6 +56,28 @@ async def _get_text(path: str) -> "str | None":
         return None
 
 
+def _parse_srt(text: str) -> list:
+    """Parse raw SRT text into [{start, end, text}] dicts for the segment player."""
+    if not text:
+        return []
+    segments = []
+    for block in re.split(r'\n\n+', text.strip()):
+        lines = block.strip().splitlines()
+        if len(lines) < 3:
+            continue
+        try:
+            int(lines[0].strip())
+        except ValueError:
+            continue
+        tc = lines[1].strip()
+        parts = tc.split(' --> ')
+        start = parts[0].strip() if parts else ''
+        end = parts[1].strip() if len(parts) > 1 else ''
+        seg_text = '\n'.join(lines[2:])
+        segments.append({'start': start, 'end': end, 'text': seg_text})
+    return segments
+
+
 def _strip_md(text: str) -> str:
     """Extract plain-text preview from a markdown summary file."""
     if not text:
@@ -99,6 +121,20 @@ async def dashboard(request: Request):
 async def status_partial(request: Request):
     data = await _get("/status/")
     return templates.TemplateResponse(request=request, name="partials/status.html", context=data or {})
+
+
+@app.get("/partial/jobs", response_class=HTMLResponse)
+async def partial_jobs(request: Request):
+    overview = await _get("/jobs")
+    if not isinstance(overview, dict):
+        overview = {}
+    ctx = {
+        "processing": overview.get("processing", []),
+        "queue": overview.get("queue", []),
+        "recent": overview.get("recent", []),
+        "failed": overview.get("failed", []),
+    }
+    return templates.TemplateResponse(request=request, name="partials/jobs.html", context=ctx)
 
 
 @app.get("/partial/stats", response_class=HTMLResponse)
@@ -197,6 +233,34 @@ async def srt_partial(request: Request, stem: str, q: str = Query(default="")):
     )
 
 
+@app.get("/files/{job_id}/srt", response_class=HTMLResponse)
+async def srt_viewer_by_job(request: Request, job_id: str):
+    """SRT viewer addressed by job_id — fetches raw SRT and renders with per-segment play."""
+    srt_text = await _get_text(f"/files/{job_id}/srt")
+    segments = _parse_srt(srt_text or "")
+    return templates.TemplateResponse(
+        request=request,
+        name="srt_viewer.html",
+        context={
+            "stem": job_id,
+            "job_id": job_id,
+            "segments": segments,
+            "q": "",
+            "total": len(segments),
+            "speaker_data": {},
+            "has_audio": False,
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/segment/{index}/play-url")
+async def segment_play_url(job_id: str, index: int):
+    """Proxy the presigned clip URL from the API — avoids CORS issues in the browser."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{API_URL}/jobs/{job_id}/segment/{index}/audio")
+    return resp.json()
+
+
 @app.get("/files/{stem}/audio")
 async def audio_proxy(request: Request, stem: str):
     range_header = request.headers.get("range")
@@ -252,9 +316,22 @@ async def upload_init_proxy(request: Request):
 @app.post("/upload/complete")
 async def upload_complete_proxy(request: Request):
     body = await request.json()
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(f"{API_URL}/upload/complete", json=body)
-        return r.json()
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Finalise the MinIO multipart upload
+        complete_r = await client.post(f"{API_URL}/upload/complete", json=body)
+        complete_data = complete_r.json() if complete_r.status_code == 200 else {}
+
+        # Trigger job via v2 Project Service intake
+        minio_key = body.get("minio_key", "")
+        if minio_key:
+            job_r = await client.post(f"{API_URL}/jobs", json={
+                "file_key": minio_key,
+                "dag_flow": None,
+            })
+            if job_r.status_code == 201:
+                return {**complete_data, **job_r.json()}
+
+        return complete_data
 
 
 @app.get("/partial/queue", response_class=HTMLResponse)
