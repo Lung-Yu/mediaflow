@@ -52,7 +52,7 @@ def test_get_segment_audio_cached(client):
     assert resp.json()["expires_in"] == 600
 
 
-def test_get_segment_audio_cache_miss_generates_clip(client, tmp_path):
+def test_get_segment_audio_cache_miss_generates_clip(client):
     from botocore.exceptions import ClientError
     mock_minio = _mock_minio_with_segments(SEGMENTS)
     # head_object raises → cache miss

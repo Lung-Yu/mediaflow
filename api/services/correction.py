@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import timedelta
 from pathlib import Path
 from typing import List
 
@@ -13,11 +12,12 @@ from api import db
 
 
 def _seconds_to_srt_ts(seconds: float) -> str:
-    td = timedelta(seconds=seconds)
-    total_s = int(td.total_seconds())
-    ms = int((seconds - int(seconds)) * 1000)
-    h, rem = divmod(total_s, 3600)
-    m, s = divmod(rem, 60)
+    total_ms = round(seconds * 1000)
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    h = total_s // 3600
+    m = (total_s % 3600) // 60
+    s = total_s % 60
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
@@ -50,13 +50,16 @@ async def apply_correction(
     )
     segments: List[dict] = json.loads(obj["Body"].read())
 
-    # Apply edits (full text replacement per index)
+    # Apply edits (full text replacement per list position)
     edit_map = {e["index"]: e["text"] for e in edits}
-    for seg in segments:
-        if seg["id"] in edit_map:
-            seg["text"] = edit_map[seg["id"]]
+    new_segments = []
+    for pos, seg in enumerate(segments):
+        new_seg = dict(seg)
+        if pos in edit_map:
+            new_seg["text"] = edit_map[pos]
+        new_segments.append(new_seg)
 
-    corrected_srt = _build_srt(segments)
+    corrected_srt = _build_srt(new_segments)
 
     # Write corrected SRT to MinIO output/
     corrected_key = f"output/{job_id}/{stem}_corrected.srt"

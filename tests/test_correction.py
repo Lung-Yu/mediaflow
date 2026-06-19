@@ -35,6 +35,17 @@ def mock_minio():
     return m
 
 
+# ── Unit tests for helpers ────────────────────────────────────────────────────
+
+def test_seconds_to_srt_ts_precision():
+    from api.services.correction import _seconds_to_srt_ts
+    assert _seconds_to_srt_ts(0.0) == "00:00:00,000"
+    assert _seconds_to_srt_ts(1.5) == "00:00:01,500"
+    assert _seconds_to_srt_ts(4.1) == "00:00:04,100"   # previously produced 099 due to float error
+    assert _seconds_to_srt_ts(61.001) == "00:01:01,001"
+    assert _seconds_to_srt_ts(3661.999) == "01:01:01,999"
+
+
 # ── Service unit tests ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

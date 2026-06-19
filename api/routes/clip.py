@@ -44,7 +44,7 @@ async def _generate_clip_bytes(
             )
             return out.read_bytes()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync)
 
 
