@@ -86,6 +86,14 @@ lifecycle:
   # Note: enabling wav=immediate + archive=immediate means rerun-from-transcribe
   # or rerun-from-preprocess will require re-uploading the original file.
 
+postgres:
+  host: localhost
+  port: 5432
+  database: mediaflow
+  user: mediaflow
+  password: changeme
+  # Or set DATABASE_URL env var to override all fields above
+
 minio:
   endpoint: localhost:9000
   public_endpoint: localhost:9000   # browser-facing URL for presigned uploads (set to host IP/domain if remote)

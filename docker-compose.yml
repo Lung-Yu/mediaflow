@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediaflow
+      POSTGRES_USER: mediaflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediaflow -d mediaflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -59,6 +76,7 @@ services:
       - LIFECYCLE_OUTPUT=${LIFECYCLE_OUTPUT:-forever}
       - LIFECYCLE_MINIO_INPUT=${LIFECYCLE_MINIO_INPUT:-forever}
       - LIFECYCLE_MINIO_OUTPUT=${LIFECYCLE_MINIO_OUTPUT:-forever}
+      - DATABASE_URL=postgresql://mediaflow:${POSTGRES_PASSWORD:-changeme}@postgres:5432/mediaflow
     volumes:
       - ./workspace:/workspace:ro          # read-only SRT access (same-machine deploy)
       - ./workspace/1_input:/workspace/1_input  # writable for queue consumer downloads
@@ -70,6 +88,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   web:
@@ -87,3 +107,4 @@ services:
 volumes:
   redis-data:
   minio-data:
+  postgres-data:
