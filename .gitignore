@@ -1,6 +1,7 @@
 # Python
 venv/
 venv-diarize/
+venv-whisper/
 __pycache__/
 *.pyc
 *.pyo
@@ -26,3 +27,5 @@ data/
 .vscode/
 .idea/
 .superpowers/
+.playwright-mcp/
+.pytest_cache/
