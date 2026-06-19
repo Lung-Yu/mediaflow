@@ -37,7 +37,11 @@ def _get_pool():
 # ── Pool-aware shims for functions the plan re-exports with no-arg signature ─
 
 async def get_status_overview() -> dict:
-    return await _get_status_overview_q(_get_pool())
+    result = await _get_status_overview_q(_get_pool())
+    for key in ("processing", "queue", "recent", "failed"):
+        for d in result.get(key, []):
+            d["stem"] = d["id"]
+    return result
 
 
 async def get_task_aggregates() -> dict:
@@ -68,10 +72,8 @@ async def insert_event(stem: str, event: str = "", **kwargs) -> None:
 # ── Legacy shims — same names as old api/db.py ──────────────────────────────
 
 async def upsert_task(stem: str, **kwargs) -> None:
-    """Legacy shim: stem maps to job_id; filename defaults to stem."""
+    """Legacy shim: stem maps to job_id; filename is only written on INSERT, never overwritten."""
     kw = dict(kwargs)
-    if "filename" not in kw:
-        kw["filename"] = stem
     # Remove columns not in the new jobs table
     kw.pop("duration_sec", None)
     kw.pop("minio_output_prefix", None)
@@ -90,11 +92,35 @@ async def upsert_task(stem: str, **kwargs) -> None:
             "detecting_chapters": "processing",
         }
         kw["status"] = status_map.get(kw["status"], kw["status"])
-    await upsert_job(_get_pool(), stem, **kw)
+
+    pool = _get_pool()
+    # filename is used only for INSERT; never overwrite it on conflict
+    insert_filename = kw.pop("filename", stem)
+
+    if kw:
+        cols = list(kw.keys())
+        vals = list(kw.values())
+        col_list = ", ".join(["filename"] + cols)
+        ph_list = ", ".join(["$2"] + [f"${i+3}" for i in range(len(cols))])
+        update_list = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
+        sql = (
+            f"INSERT INTO jobs (id, {col_list}) "
+            f"VALUES ($1, {ph_list}) "
+            f"ON CONFLICT (id) DO UPDATE SET {update_list}"
+        )
+        await pool.execute(sql, stem, insert_filename, *vals)
+    else:
+        await pool.execute(
+            "INSERT INTO jobs (id, filename) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+            stem, insert_filename,
+        )
 
 
 async def get_task(stem: str) -> dict | None:
-    return await get_job(_get_pool(), stem)
+    result = await get_job(_get_pool(), stem)
+    if result is not None:
+        result["stem"] = result["id"]
+    return result
 
 
 async def count_active_tasks() -> int:

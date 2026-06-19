@@ -17,7 +17,18 @@ async def init(pool: asyncpg.Pool) -> None:
         await pool.execute(sql)
 
 
+_ALLOWED_JOB_COLUMNS = frozenset({
+    "filename", "submitted_by", "dag_flow_id", "status", "current_stage",
+    "submitted_at", "started_at", "completed_at", "retry_count", "error_msg",
+    "output_srt_path", "corrected_srt_path", "verification_status",
+    "verified_at", "verified_by", "minio_input_key", "minio_processing_key",
+})
+
+
 async def upsert_job(pool: asyncpg.Pool, job_id: str, **kwargs: Any) -> None:
+    bad = set(kwargs) - _ALLOWED_JOB_COLUMNS
+    if bad:
+        raise ValueError(f"upsert_job: unknown columns: {bad}")
     cols = list(kwargs.keys())
     vals = list(kwargs.values())
     col_list = ", ".join(cols)
@@ -37,7 +48,7 @@ async def get_job(pool: asyncpg.Pool, job_id: str) -> Optional[dict]:
 
 
 async def insert_event(
-    pool: asyncpg.Pool, job_id: str, stage: str, status: str,
+    pool: asyncpg.Pool, job_id: str, stage: str, status: Optional[str],
     retry_attempt: int = 0, error_msg: Optional[str] = None,
     payload: Optional[str] = None, ts: Optional[float] = None,
 ) -> None:
