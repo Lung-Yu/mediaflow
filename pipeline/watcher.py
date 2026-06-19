@@ -25,7 +25,7 @@ from pipeline import runner
 
 log = logging.getLogger(__name__)
 
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipeline")
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
 
 
 def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
