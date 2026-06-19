@@ -16,7 +16,7 @@ from api.lifecycle import parse_retention
 from api.reconcile import reconcile
 from api.mq import consumer
 from api.mq import queue_consumer
-from api.routes import dag_callback, events, files, jobs as jobs_router, stats, status, tasks, upload
+from api.routes import correction, dag_callback, events, files, jobs as jobs_router, stats, status, tasks, upload
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+app.include_router(correction.router)
 app.include_router(dag_callback.router)
 app.include_router(events.router)
 app.include_router(files.router)
