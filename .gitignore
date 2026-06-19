@@ -19,6 +19,7 @@ pipeline.db
 # Runtime data (not versioned)
 workspace/
 data/
+enrollment_clips/
 
 # macOS
 .DS_Store
