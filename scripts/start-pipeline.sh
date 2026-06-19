@@ -19,5 +19,23 @@ trap "rm -f $PID_FILE" EXIT
 source venv/bin/activate
 pip install -q -r requirements.txt
 
-echo "Starting mediaflow pipeline watcher (foreground)..."
-exec python -m pipeline.watcher
+MODE="${PIPELINE_MODE:-worker}"  # worker | watcher | both
+
+case "$MODE" in
+  worker)
+    echo "Starting Progress Worker (MQ mode)..."
+    exec python -m pipeline.worker
+    ;;
+  watcher)
+    echo "Starting folder watcher (legacy local mode)..."
+    exec python -m pipeline.watcher
+    ;;
+  both)
+    python -m pipeline.worker &
+    exec python -m pipeline.watcher
+    ;;
+  *)
+    echo "Unknown PIPELINE_MODE: $MODE (valid: worker | watcher | both)"
+    exit 1
+    ;;
+esac
