@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import asyncpg
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,11 +22,16 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://mediaflow:changeme@localhost:5432/mediaflow",
 )
+REDIS_URL = "redis://{}:{}".format(
+    os.getenv("REDIS_HOST", "localhost"),
+    os.getenv("REDIS_PORT", "6379"),
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     await db.init(app.state.pool)
     await reconcile()
 
@@ -65,6 +71,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     await app.state.pool.close()
+    await app.state.redis.aclose()
 
 
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
