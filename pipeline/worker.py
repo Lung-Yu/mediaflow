@@ -5,10 +5,8 @@ import json
 import logging
 import os
 import shutil
-import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import redis
@@ -37,7 +35,6 @@ def _run_stage(
     stage_id: str,
     ctx: dict,
     stage_cfg: dict,
-    workspace: Path,
     providers: dict,
 ) -> dict:
     """Run one stage and return updated ctx. Raises on failure."""
@@ -69,7 +66,18 @@ def _process_job(
 
     local_audio = job_workspace / Path(processing_path).name
     log.info("Downloading %s → %s", processing_path, local_audio)
-    minio.download_processing_file(processing_path, local_audio)
+    try:
+        minio.download_processing_file(processing_path, local_audio)
+    except Exception as exc:
+        log.error("Job %s: download failed: %s", job_id, exc)
+        _post_callback(f"{dagservice_url}/internal/stage-callback", {
+            "job_id":        job_id,
+            "stage":         "download",
+            "status":        "failed",
+            "retry_attempt": retry_attempt,
+            "error_msg":     str(exc),
+        })
+        return
 
     ctx: dict = {
         "stem":       stem,
@@ -79,6 +87,18 @@ def _process_job(
         "input_path": local_audio,
         "audio_path": local_audio,
     }
+
+    stage_names = [s["stage"] for s in stage_plan]
+    if resume_from_stage and resume_from_stage not in stage_names:
+        log.error("Job %s: resume_from_stage %r not in plan %s", job_id, resume_from_stage, stage_names)
+        _post_callback(f"{dagservice_url}/internal/stage-callback", {
+            "job_id":        job_id,
+            "stage":         "routing",
+            "status":        "failed",
+            "retry_attempt": retry_attempt,
+            "error_msg":     f"resume_from_stage {resume_from_stage!r} not in stage plan",
+        })
+        return
 
     skipping = True
     for stage_def in stage_plan:
@@ -95,7 +115,7 @@ def _process_job(
         log.info("Job %s: running stage %s (attempt %d)", job_id, stage_id, retry_attempt)
         try:
             providers = runner._build_providers_for_stage(stage_def)
-            ctx = _run_stage(stage_id, ctx, stage_cfg, workspace, providers)
+            ctx = _run_stage(stage_id, ctx, stage_cfg, providers)
             _post_callback(f"{dagservice_url}/internal/stage-callback", {
                 "job_id":        job_id,
                 "stage":         stage_id,
@@ -115,7 +135,18 @@ def _process_job(
             return  # stop processing — DAG-Service handles retry
 
     log.info("Job %s complete — uploading outputs", job_id)
-    minio.upload_job_outputs(job_id, stem, output_dir)
+    try:
+        minio.upload_job_outputs(job_id, stem, output_dir)
+    except Exception as exc:
+        log.error("Job %s: upload failed: %s", job_id, exc)
+        _post_callback(f"{dagservice_url}/internal/stage-callback", {
+            "job_id":        job_id,
+            "stage":         "upload",
+            "status":        "failed",
+            "retry_attempt": retry_attempt,
+            "error_msg":     str(exc),
+        })
+        return
     shutil.rmtree(job_workspace, ignore_errors=True)
 
 
