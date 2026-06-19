@@ -30,12 +30,14 @@ def client(mock_boto3):
 
 def test_ensure_buckets_creates_both(client, mock_boto3):
     _, s3 = mock_boto3
-    s3.create_bucket.side_effect = [None, None]
+    s3.create_bucket.side_effect = [None, None, None, None]
     client.ensure_buckets()
-    assert s3.create_bucket.call_count == 2
+    assert s3.create_bucket.call_count == 4
     calls = [c[1]["Bucket"] for c in s3.create_bucket.call_args_list]
     assert "test-input" in calls
     assert "test-output" in calls
+    assert client.processing_bucket in calls
+    assert client.clips_bucket in calls
 
 
 def test_ensure_buckets_cors_set_via_server_env(client, mock_boto3):
@@ -122,4 +124,15 @@ def test_presign_get_url(client, mock_boto3):
         "get_object",
         Params={"Bucket": "test-output", "Key": "stem/stem.srt"},
         ExpiresIn=604800,
+    )
+
+
+def test_copy_input_to_processing(client, mock_boto3):
+    _, s3 = mock_boto3
+    key = client.copy_input_to_processing("input/test.m4a", "job1")
+    assert key == "processing/job1/test.m4a"
+    s3.copy_object.assert_called_once_with(
+        CopySource={"Bucket": "test-input", "Key": "input/test.m4a"},
+        Bucket=client.processing_bucket,
+        Key="processing/job1/test.m4a",
     )

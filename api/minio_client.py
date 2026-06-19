@@ -15,6 +15,8 @@ SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "changeme")
 SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 INPUT_BUCKET = os.getenv("MINIO_INPUT_BUCKET", "mediaflow-input")
 OUTPUT_BUCKET = os.getenv("MINIO_OUTPUT_BUCKET", "mediaflow-output")
+PROCESSING_BUCKET = os.getenv("MINIO_PROCESSING_BUCKET", "mediaflow-processing")
+CLIPS_BUCKET = os.getenv("MINIO_CLIPS_BUCKET", "mediaflow-clips")
 
 _OUTPUT_STEMS = [".srt", "_summary.md", "_summary.json", "_chapters.json"]
 
@@ -24,6 +26,8 @@ class MinIOClient:
         self, endpoint: str, access_key: str, secret_key: str,
         secure: bool, input_bucket: str, output_bucket: str,
         public_endpoint: str = "",
+        processing_bucket: str = "",
+        clips_bucket: str = "",
     ):
         scheme = "https" if secure else "http"
         self._s3 = boto3.client(  # boto3 is module-level; mock replaces it via patch
@@ -37,6 +41,8 @@ class MinIOClient:
         self._public_base = f"{scheme}://{public_endpoint or endpoint}"
         self.input_bucket = input_bucket
         self.output_bucket = output_bucket
+        self.processing_bucket = processing_bucket or PROCESSING_BUCKET
+        self.clips_bucket = clips_bucket or CLIPS_BUCKET
 
     def ensure_buckets(self) -> None:
         """Create buckets if absent.
@@ -44,11 +50,20 @@ class MinIOClient:
         CORS is configured at the MinIO server level via MINIO_API_CORS_ALLOW_ORIGIN
         (set in docker-compose.yml) — MinIO 2025+ removed the PutBucketCors S3 API.
         """
-        for bucket in [self.input_bucket, self.output_bucket]:
+        for bucket in [self.input_bucket, self.output_bucket,
+                       self.processing_bucket, self.clips_bucket]:
             try:
                 self._s3.create_bucket(Bucket=bucket)
             except Exception:
                 pass  # already exists
+        try:
+            self.set_bucket_lifecycle(self.processing_bucket, days=7)
+        except Exception:
+            pass
+        try:
+            self.set_bucket_lifecycle(self.clips_bucket, days=1)
+        except Exception:
+            pass
 
     def create_multipart_upload(self, key: str) -> str:
         """Initiate a multipart upload and return the upload ID."""
@@ -99,6 +114,17 @@ class MinIOClient:
         """Download object from input bucket to local path. Blocking — use run_in_executor."""
         dest.parent.mkdir(parents=True, exist_ok=True)
         self._s3.download_file(self.input_bucket, key, str(dest))
+
+    def copy_input_to_processing(self, input_key: str, job_id: str) -> str:
+        """Copy file from input/ to processing/{job_id}/. Returns the processing key."""
+        filename = input_key.split("/")[-1]
+        processing_key = f"processing/{job_id}/{filename}"
+        self._s3.copy_object(
+            CopySource={"Bucket": self.input_bucket, "Key": input_key},
+            Bucket=self.processing_bucket,
+            Key=processing_key,
+        )
+        return processing_key
 
     def upload_outputs(self, stem: str, output_dir: Path) -> None:
         """Upload SRT and summary files for stem to the output bucket."""
@@ -154,5 +180,7 @@ def init_client() -> MinIOClient:
         input_bucket=INPUT_BUCKET,
         output_bucket=OUTPUT_BUCKET,
         public_endpoint=PUBLIC_ENDPOINT,
+        processing_bucket=PROCESSING_BUCKET,
+        clips_bucket=CLIPS_BUCKET,
     )
     return _client
