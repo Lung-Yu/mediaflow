@@ -87,6 +87,11 @@
          hx-swap="innerHTML">
     </div>
 
+    {# ── Segment audio player (clip-level playback via presigned URL) #}
+    {% if job_id is defined and job_id %}
+    <audio id="segment-player" controls style="position:sticky;top:0;width:100%;z-index:10"></audio>
+    {% endif %}
+
     {# ── Transcript ────────────────────────────────────────── #}
     <div id="transcript"{% if has_audio %} class="has-audio"{% endif %}>
       {% include "partials/srt_rows.html" %}
@@ -98,6 +103,22 @@
     </footer>
 
   </div>
+  {% if job_id is defined and job_id %}
+  <script>
+  async function playSegment(btn) {
+    const jobId = btn.dataset.jobId;
+    const idx   = btn.dataset.segmentIndex;
+    const resp  = await fetch(`/jobs/${jobId}/segment/${idx}/play-url`);
+    const data  = await resp.json();
+    const audio = document.getElementById('segment-player');
+    audio.src   = data.url;
+    audio.play();
+    // Re-fetch URL on error — handles expired presigned URLs
+    audio.onerror = () => playSegment(btn);
+  }
+  </script>
+  {% endif %}
+
   {% if has_audio %}
   <script>
     (function () {

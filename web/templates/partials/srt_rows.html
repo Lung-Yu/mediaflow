@@ -12,8 +12,16 @@
 <div class="srt-body">
   {% for seg in segments %}
   <div class="srt-seg {% if q %}srt-match{% endif %}"
+       data-segment-index="{{ loop.index0 }}"
        {% if seg.start_seconds is defined %}data-start="{{ seg.start_seconds }}"{% endif %}>
-    <span class="srt-ts">{{ seg.start[:8] }}</span>
+    <span class="srt-ts">{{ seg.start[:8] if seg.start else '' }}</span>
+    {% if job_id is defined and job_id %}
+    <button class="play-btn"
+            data-job-id="{{ job_id }}"
+            data-segment-index="{{ loop.index0 }}"
+            onclick="playSegment(this)"
+            title="Play segment">▶</button>
+    {% endif %}
     <span class="srt-text">{{ seg.text | safe }}</span>
   </div>
   {% else %}
