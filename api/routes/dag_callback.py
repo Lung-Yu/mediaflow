@@ -17,6 +17,7 @@ class StageCallbackBody(BaseModel):
     status: Literal["success", "failed"]
     retry_attempt: int = 0
     error_msg: Optional[str] = None
+    output_keys: Optional[list[str]] = None
 
 
 @router.post("/stage-callback")

@@ -86,9 +86,11 @@ async def test_trigger_job_sets_status_queued(mock_pool, mock_redis):
         minio_processing_key="processing/job1/test.wav",
     )
 
-    call_args_list = mock_pool.execute.call_args_list
-    sql_calls = [str(c[0][0]) for c in call_args_list]
-    assert any("queued" in sql or "INSERT INTO jobs" in sql for sql in sql_calls)
+    all_args = []
+    for call in mock_pool.execute.call_args_list:
+        all_args.extend(call[0])  # positional args to each execute call
+
+    assert "queued" in all_args, f"Expected 'queued' in execute args, got: {all_args}"
 
 
 @pytest.mark.asyncio
@@ -104,6 +106,9 @@ async def test_handle_stage_callback_success_records_event(mock_pool, mock_redis
     )
 
     assert mock_pool.execute.called
+    sql_calls = [str(c[0][0]) for c in mock_pool.execute.call_args_list]
+    event_sql = [s for s in sql_calls if "INSERT INTO events" in s]
+    assert event_sql, "Expected INSERT INTO events call"
 
 
 @pytest.mark.asyncio
@@ -129,6 +134,9 @@ async def test_handle_stage_callback_failed_schedules_retry(mock_pool, mock_redi
             retry_attempt=0, error_msg="timeout",
         )
         assert mock_create_task.called
+        mock_retry.assert_called_once()
+        call_kwargs = mock_retry.call_args
+        assert "transcribe" in str(call_kwargs)
 
 
 @pytest.mark.asyncio

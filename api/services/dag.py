@@ -78,25 +78,23 @@ async def handle_stage_callback(
         log.info("Stage %s succeeded for job %s", stage, job_id)
         return
 
-    job = await db.get_job(pool, job_id)
-    retry_count = (job or {}).get("retry_count", 0)
-
-    if retry_count < MAX_RETRIES:
-        new_count = retry_count + 1
-        await db.upsert_job(pool, job_id, retry_count=new_count, status="queued")
-        log.warning("Job %s stage %s failed (attempt %d/%d) — retrying in %ds",
-                    job_id, stage, new_count, MAX_RETRIES, RETRY_BACKOFF)
+    if retry_attempt < MAX_RETRIES:
+        new_attempt = retry_attempt + 1
+        job = await db.get_job(pool, job_id)
         processing_key = (job or {}).get("minio_processing_key", "")
         dag_flow_id = (job or {}).get("dag_flow_id")
+        await db.upsert_job(pool, job_id, retry_count=new_attempt, status="queued")
+        log.warning("Job %s stage %s failed (attempt %d/%d) — retrying in %ds",
+                    job_id, stage, new_attempt, MAX_RETRIES, RETRY_BACKOFF)
         asyncio.create_task(_retry_after(
             pool, redis, job_id, dag_flow_id, processing_key,
-            new_count, stage,
+            new_attempt, stage,
         ))
     else:
         await db.upsert_job(pool, job_id, status="failed", error_msg=error_msg,
                             completed_at=time.time())
         log.error("Job %s permanently failed after %d attempts: %s",
-                  job_id, retry_count, error_msg)
+                  job_id, retry_attempt, error_msg)
 
 
 async def _retry_after(
