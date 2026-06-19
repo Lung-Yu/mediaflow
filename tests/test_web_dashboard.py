@@ -69,3 +69,17 @@ def test_dashboard_renders_queued_jobs(client):
     )):
         resp = client.get("/partial/jobs")
     assert "pending.m4a" in resp.text
+
+
+def test_upload_complete_propagates_job_creation_failure(client):
+    """POST /upload/complete must return an error when POST /jobs returns non-201."""
+    complete_resp = type("R", (), {
+        "json": lambda s: {"minio_key": "input/test.m4a"},
+        "status_code": 200,
+    })()
+    job_fail_resp = type("R", (), {"status_code": 400, "text": "file too large"})()
+
+    with patch("httpx.AsyncClient.post", AsyncMock(side_effect=[complete_resp, job_fail_resp])):
+        resp = client.post("/upload/complete", json={"minio_key": "input/test.m4a"})
+
+    assert resp.status_code == 400

@@ -48,13 +48,14 @@ def test_list_jobs_returns_overview(client):
         "recent": [],
         "failed": [],
     }
-    with patch("api.db.get_status_overview", AsyncMock(return_value=fake_overview)):
+    with patch("api.db.get_status_overview", AsyncMock(return_value=fake_overview)) as mock_overview:
         resp = client.get("/jobs")
     assert resp.status_code == 200
     data = resp.json()
     assert "processing" in data
     assert "queue" in data
     assert len(data["queue"]) == 1
+    mock_overview.assert_called_once_with()  # shim takes no args
 
 
 # ── POST /jobs tests ──────────────────────────────────────────────────────────

@@ -324,12 +324,20 @@ async def upload_complete_proxy(request: Request):
         # Trigger job via v2 Project Service intake
         minio_key = body.get("minio_key", "")
         if minio_key:
-            job_r = await client.post(f"{API_URL}/jobs", json={
-                "file_key": minio_key,
-                "dag_flow": None,
-            })
-            if job_r.status_code == 201:
-                return {**complete_data, **job_r.json()}
+            try:
+                job_r = await client.post(f"{API_URL}/jobs", json={
+                    "file_key": minio_key,
+                    "dag_flow": None,
+                })
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"Job creation failed: {exc}")
+
+            if job_r.status_code != 201:
+                raise HTTPException(
+                    status_code=job_r.status_code,
+                    detail=job_r.text or "Job creation failed",
+                )
+            return {**complete_data, **job_r.json()}
 
         return complete_data
 

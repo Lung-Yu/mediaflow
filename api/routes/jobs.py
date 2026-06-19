@@ -50,6 +50,5 @@ async def get_job(job_id: str, request: Request):
 
 @router.get("")
 async def list_jobs(request: Request):
-    pool = request.app.state.pool
-    overview = await db.get_status_overview(pool)
+    overview = await db.get_status_overview()
     return overview
