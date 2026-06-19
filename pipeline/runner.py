@@ -115,6 +115,32 @@ STAGE_RUNNERS: dict[str, Callable] = {
     "detect_chapters": _adapt_detect_chapters,
 }
 
+# Alias used by pipeline/worker.py
+_STAGE_ADAPTERS = STAGE_RUNNERS
+
+
+def _build_providers_for_stage(stage_def: dict) -> dict:
+    """Build provider instances for a stage definition from stage_plan.
+
+    Returns a dict of provider instances to be merged into the stage cfg.
+    Stages that use external providers get an instance keyed by type;
+    preprocess and other native stages return {}.
+    """
+    from pipeline.providers import (
+        get_whisper_provider,
+        get_llm_provider,
+        get_diarize_provider,
+    )
+    stage_id = stage_def.get("stage", "")
+    cfg = stage_def.get("config", {})
+    if stage_id in ("transcribe", "verify_segments"):
+        return {"whisper_provider": get_whisper_provider(cfg)}
+    if stage_id in ("summarize", "correct_srt", "detect_chapters"):
+        return {"llm_provider": get_llm_provider(cfg)}
+    if stage_id == "diarize":
+        return {"diarize_provider": get_diarize_provider(cfg)}
+    return {}
+
 
 # ── Executor ─────────────────────────────────────────────────────────────────
 
