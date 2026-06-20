@@ -3,8 +3,7 @@
 # Copies test-speech.m4a into workspace/1_input/ and waits for outputs.
 #
 # Prerequisites (must all be running before this script):
-#   bash scripts/start-services.sh        # Docker: redis + api + web
-#   bash scripts/start-pipeline.sh        # in a separate terminal
+#   bash scripts/ctl.sh start all         # or: make start
 #   Whisper service on localhost:9001
 #   Ollama with qwen2.5:7b on localhost:11434
 #
@@ -43,53 +42,45 @@ rm -f "workspace/1_input/${STEM}.m4a"
 rm -f "workspace/1_input/${STEM}.m4a.failed"
 rm -f "$OUTPUT_SRT" "$OUTPUT_MD"
 rm -f "workspace/3_output/${STEM}_summary.json"
-rm -f "workspace/2_processing/${STEM}_clean.wav"
-rm -f "$ARCHIVE_FILE"
+rm -f "workspace/2_processing/${STEM}_clean.wav" "$ARCHIVE_FILE"
 
 # ── Drop file into pipeline ───────────────────────────────────────────────────
 echo "Dropping $INPUT_FILE into workspace/1_input/ ..."
 cp "$INPUT_FILE" "workspace/1_input/${STEM}.m4a"
 START=$(date +%s)
 
-# ── Poll for completion ───────────────────────────────────────────────────────
+# ── Poll for completion via watcher.log ──────────────────────────────────────
 echo "Waiting for pipeline (timeout: ${TIMEOUT}s) ..."
 echo ""
+
+WATCHER_LOG="data/logs/watcher.log"
+LOG_OFFSET=$(wc -l < "$WATCHER_LOG" 2>/dev/null || echo 0)
 
 while true; do
   ELAPSED=$(( $(date +%s) - START ))
 
-  STATUS=$(curl -sf "http://localhost:8080/status/" 2>/dev/null | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for t in d.get('completed', []) + d.get('recent', []):
-    if t.get('stem') == '${STEM}':
-        print('completed')
-        sys.exit(0)
-for t in d.get('failed', []):
-    if t.get('stem') == '${STEM}':
-        print('failed')
-        sys.exit(0)
-print('pending')
-" 2>/dev/null || echo "pending")
+  # Read only log lines written after this test started
+  RESULT=$(tail -n +"$((LOG_OFFSET + 1))" "$WATCHER_LOG" 2>/dev/null | grep -E "DONE ${STEM}|Pipeline FAILED.*${STEM}" | head -1 || true)
 
-  if [ "$STATUS" = "completed" ]; then
+  if echo "$RESULT" | grep -q "DONE ${STEM}"; then
     echo "✓  Pipeline completed (${ELAPSED}s)"
     break
-  elif [ "$STATUS" = "failed" ]; then
+  elif echo "$RESULT" | grep -q "Pipeline FAILED.*${STEM}"; then
     echo "✗  Pipeline FAILED (${ELAPSED}s)"
     echo ""
-    echo "Check logs: docker compose logs api"
+    echo "  $RESULT"
+    echo "Check logs: tail -50 data/logs/watcher.log"
     exit 1
   fi
 
   if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
     echo "✗  Timed out after ${TIMEOUT}s — pipeline may still be running"
     echo ""
-    echo "Check status: curl http://localhost:8080/status/"
+    echo "Check status: tail -20 data/logs/watcher.log"
     exit 1
   fi
 
-  printf "   [%3ds] status=%s ...\r" "$ELAPSED" "$STATUS"
+  printf "   [%3ds] waiting...\r" "$ELAPSED"
   sleep 5
 done
 
@@ -113,8 +104,8 @@ check() {
 check "SRT transcript"     "$OUTPUT_SRT"
 check "Summary markdown"   "$OUTPUT_MD"
 check "Summary JSON"       "workspace/3_output/${STEM}_summary.json"
-check "Processed WAV"      "workspace/2_processing/${STEM}_clean.wav"
 check "Archived original"  "$ARCHIVE_FILE"
+# WAV is deleted after processing when lifecycle.wav=immediate (configurable)
 
 # SRT content sanity check
 if [ -f "$OUTPUT_SRT" ]; then
