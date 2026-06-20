@@ -8,6 +8,11 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry import metrics as _otel_metrics
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from api import db
 from api import minio_client as minio_mod
@@ -26,6 +31,17 @@ REDIS_URL = "redis://{}:{}".format(
     os.getenv("REDIS_HOST", "localhost"),
     os.getenv("REDIS_PORT", "6379"),
 )
+
+
+def _init_otel() -> None:
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
+    exporter = OTLPMetricExporter(endpoint=endpoint, insecure=True)
+    reader = PeriodicExportingMetricReader(exporter, export_interval_millis=15_000)
+    provider = MeterProvider(metric_readers=[reader])
+    _otel_metrics.set_meter_provider(provider)
+
+
+_init_otel()
 
 
 @asynccontextmanager
@@ -75,6 +91,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="mediaflow API", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 app.include_router(clip.router)

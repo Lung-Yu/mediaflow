@@ -80,6 +80,7 @@ services:
       - LIFECYCLE_MINIO_INPUT=${LIFECYCLE_MINIO_INPUT:-forever}
       - LIFECYCLE_MINIO_OUTPUT=${LIFECYCLE_MINIO_OUTPUT:-forever}
       - DATABASE_URL=postgresql://mediaflow:${POSTGRES_PASSWORD:-changeme}@postgres:5432/mediaflow
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
     volumes:
       - ./workspace:/workspace:ro          # read-only SRT access (same-machine deploy)
       - ./workspace/1_input:/workspace/1_input  # writable for queue consumer downloads
