@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture
 def mock_boto3():
-    with patch("api.minio_client.boto3") as mock:
+    with patch("api.utils.minio.boto3") as mock:
         mock_s3 = MagicMock()
         mock.client.return_value = mock_s3
         yield mock, mock_s3
@@ -16,7 +16,7 @@ def mock_boto3():
 @pytest.fixture
 def client(mock_boto3):
     import importlib
-    import api.minio_client as mod
+    import api.utils.minio as mod
     importlib.reload(mod)
     return mod.MinIOClient(
         endpoint="localhost:9000",

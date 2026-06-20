@@ -26,7 +26,7 @@ def _event(event, stem="s1", stage="", **kw):
 
 def test_stage_started_preprocess_sets_preprocessing():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("stage.started", stage="preprocess")))
     assert status == "preprocessing"
@@ -34,7 +34,7 @@ def test_stage_started_preprocess_sets_preprocessing():
 
 def test_stage_started_transcribe_sets_transcribing():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("stage.started", stage="transcribe")))
     assert status == "transcribing"
@@ -42,7 +42,7 @@ def test_stage_started_transcribe_sets_transcribing():
 
 def test_stage_started_summarize_sets_summarizing():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("stage.started", stage="summarize")))
     assert status == "summarizing"
@@ -50,7 +50,7 @@ def test_stage_started_summarize_sets_summarizing():
 
 def test_stage_started_all_known_stages():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     expected = {
         "preprocess":      "preprocessing",
@@ -69,7 +69,7 @@ def test_stage_started_all_known_stages():
 def test_stage_completed_does_not_change_db_status():
     import importlib
     import api.db as db_mod
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
 
     # Set status to transcribing via stage.started
@@ -85,7 +85,7 @@ def test_stage_completed_does_not_change_db_status():
 
 def test_task_completed_sets_completed():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("task.completed")))
     assert status == "completed"
@@ -93,7 +93,7 @@ def test_task_completed_sets_completed():
 
 def test_task_failed_sets_failed():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("task.failed", error_msg="boom")))
     assert status == "failed"
@@ -101,7 +101,7 @@ def test_task_failed_sets_failed():
 
 def test_unknown_stage_started_falls_back_to_processing():
     import importlib
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     status = _run(ep.process_event(_event("stage.started", stage="unknown_future_stage")))
     assert status == "processing"
@@ -110,7 +110,7 @@ def test_unknown_stage_started_falls_back_to_processing():
 def test_get_status_overview_includes_transcribing_tasks():
     import importlib
     import api.db as db_mod
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     importlib.reload(db_mod)
 
@@ -126,7 +126,7 @@ def test_get_status_overview_includes_transcribing_tasks():
 def test_get_status_overview_includes_all_active_stages():
     import importlib
     import api.db as db_mod
-    import api.event_processor as ep
+    import api.services.event_processor as ep
     importlib.reload(ep)
     importlib.reload(db_mod)
 

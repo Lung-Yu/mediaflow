@@ -123,7 +123,7 @@ def client():
 
 
 def test_patch_correction_returns_200(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()), \
+    with patch("api.utils.minio.get_client", return_value=MagicMock()), \
          patch("api.services.correction.apply_correction", AsyncMock(return_value="1\n...")):
         resp = client.patch("/jobs/job1/correction",
                             json={"segments": [{"index": 0, "text": "你好"}]})
@@ -144,7 +144,7 @@ def test_patch_correction_invalid_body_returns_422(client):
 
 
 def test_patch_correction_job_not_found_returns_404(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()), \
+    with patch("api.utils.minio.get_client", return_value=MagicMock()), \
          patch("api.services.correction.apply_correction",
                AsyncMock(side_effect=ValueError("Job 'missing' not found"))):
         resp = client.patch("/jobs/missing/correction",

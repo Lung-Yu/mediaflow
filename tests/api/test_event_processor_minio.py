@@ -29,11 +29,11 @@ def test_task_completed_triggers_minio_backup(mock_minio_client, tmp_path, monke
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
     (tmp_path / "3_output").mkdir(parents=True)
 
-    with patch("api.minio_client.get_client", return_value=mock_minio_client), \
-         patch("api.minio_client._client", mock_minio_client):
+    with patch("api.utils.minio.get_client", return_value=mock_minio_client), \
+         patch("api.utils.minio._client", mock_minio_client):
 
         import importlib
-        import api.event_processor as ep
+        import api.services.event_processor as ep
         importlib.reload(ep)
 
         asyncio.get_event_loop().run_until_complete(ep.process_event({
@@ -53,11 +53,11 @@ def test_task_completed_backup_failure_does_not_raise(mock_minio_client, tmp_pat
     (tmp_path / "3_output").mkdir(parents=True)
     mock_minio_client.upload_outputs.side_effect = Exception("MinIO down")
 
-    with patch("api.minio_client.get_client", return_value=mock_minio_client), \
-         patch("api.minio_client._client", mock_minio_client):
+    with patch("api.utils.minio.get_client", return_value=mock_minio_client), \
+         patch("api.utils.minio._client", mock_minio_client):
 
         import importlib
-        import api.event_processor as ep
+        import api.services.event_processor as ep
         importlib.reload(ep)
 
         # Should not raise — backup failure is non-fatal

@@ -61,7 +61,7 @@ def test_list_jobs_returns_overview(client):
 # ── POST /jobs tests ──────────────────────────────────────────────────────────
 
 def test_post_job_creates_job_and_returns_201(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()):
+    with patch("api.utils.minio.get_client", return_value=MagicMock()):
         with patch("api.services.project.create_job", AsyncMock(return_value="job-abc")) as mock_create:
             resp = client.post("/jobs", json={
                 "file_key": "input/lesson01.m4a",
@@ -74,7 +74,7 @@ def test_post_job_creates_job_and_returns_201(client):
 
 
 def test_post_job_fr6_failure_returns_400(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()):
+    with patch("api.utils.minio.get_client", return_value=MagicMock()):
         with patch("api.services.project.create_job",
                    AsyncMock(side_effect=ValueError("FR6: file is empty"))):
             resp = client.post("/jobs", json={"file_key": "input/empty.m4a"})
@@ -83,7 +83,7 @@ def test_post_job_fr6_failure_returns_400(client):
 
 
 def test_post_job_file_not_found_returns_404(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()):
+    with patch("api.utils.minio.get_client", return_value=MagicMock()):
         with patch("api.services.project.create_job",
                    AsyncMock(side_effect=FileNotFoundError("File not found in MinIO input bucket"))):
             resp = client.post("/jobs", json={"file_key": "input/missing.m4a"})
@@ -91,7 +91,7 @@ def test_post_job_file_not_found_returns_404(client):
 
 
 def test_post_job_dag_flow_defaults_to_none(client):
-    with patch("api.minio_client.get_client", return_value=MagicMock()):
+    with patch("api.utils.minio.get_client", return_value=MagicMock()):
         with patch("api.services.project.create_job", AsyncMock(return_value="job-xyz")) as mock_create:
             resp = client.post("/jobs", json={"file_key": "input/lesson02.m4a"})
     assert resp.status_code == 201

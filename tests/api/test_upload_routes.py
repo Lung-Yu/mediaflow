@@ -29,7 +29,7 @@ def mock_minio():
         {"part_number": 1, "url": "http://minio/part1"},
         {"part_number": 2, "url": "http://minio/part2"},
     ]
-    with patch("api.minio_client.get_client", return_value=m):
+    with patch("api.utils.minio.get_client", return_value=m):
         yield m
 
 

@@ -44,7 +44,7 @@ def _mock_minio_with_segments(segments):
 
 def test_get_segment_audio_cached(client):
     mock_minio = _mock_minio_with_segments(SEGMENTS)
-    with patch("api.minio_client.get_client", return_value=mock_minio), \
+    with patch("api.utils.minio.get_client", return_value=mock_minio), \
          patch("api.db.get_job", AsyncMock(return_value=FAKE_JOB)):
         resp = client.get("/jobs/job1/segment/0/audio")
     assert resp.status_code == 200
@@ -60,7 +60,7 @@ def test_get_segment_audio_cache_miss_generates_clip(client):
         {"Error": {"Code": "NoSuchKey", "Message": ""}}, "HeadObject"
     )
     mock_minio._s3.upload_fileobj = MagicMock()
-    with patch("api.minio_client.get_client", return_value=mock_minio), \
+    with patch("api.utils.minio.get_client", return_value=mock_minio), \
          patch("api.db.get_job", AsyncMock(return_value=FAKE_JOB)), \
          patch("api.routes.clip._generate_clip_bytes",
                AsyncMock(return_value=b"fake-wav")):
@@ -71,7 +71,7 @@ def test_get_segment_audio_cache_miss_generates_clip(client):
 
 def test_get_segment_audio_invalid_index(client):
     mock_minio = _mock_minio_with_segments(SEGMENTS)
-    with patch("api.minio_client.get_client", return_value=mock_minio), \
+    with patch("api.utils.minio.get_client", return_value=mock_minio), \
          patch("api.db.get_job", AsyncMock(return_value=FAKE_JOB)):
         resp = client.get("/jobs/job1/segment/99/audio")
     assert resp.status_code == 404
@@ -79,7 +79,7 @@ def test_get_segment_audio_invalid_index(client):
 
 def test_get_segment_audio_job_not_found(client):
     mock_minio = _mock_minio_with_segments(SEGMENTS)
-    with patch("api.minio_client.get_client", return_value=mock_minio), \
+    with patch("api.utils.minio.get_client", return_value=mock_minio), \
          patch("api.db.get_job", AsyncMock(return_value=None)):
         resp = client.get("/jobs/missing/segment/0/audio")
     assert resp.status_code == 404
@@ -87,7 +87,7 @@ def test_get_segment_audio_job_not_found(client):
 
 def test_get_segment_audio_returns_start_end(client):
     mock_minio = _mock_minio_with_segments(SEGMENTS)
-    with patch("api.minio_client.get_client", return_value=mock_minio), \
+    with patch("api.utils.minio.get_client", return_value=mock_minio), \
          patch("api.db.get_job", AsyncMock(return_value=FAKE_JOB)):
         resp = client.get("/jobs/job1/segment/1/audio")
     data = resp.json()

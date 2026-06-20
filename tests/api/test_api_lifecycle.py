@@ -12,7 +12,7 @@ os.environ.setdefault("DB_PATH", ":memory:")
 
 # ── api/lifecycle.py ──────────────────────────────────────────────────────────
 
-from api.lifecycle import parse_retention as api_parse
+from api.utils.lifecycle import parse_retention as api_parse
 
 
 def test_api_parse_retention_days():
@@ -70,7 +70,7 @@ def test_output_cleanup_deletes_all_stem_files(tmp_output):
     )
     _make_stem(output_dir, "old_lesson", age_days=40)
 
-    from api.cleanup import run_output_cleanup
+    from api.utils.cleanup import run_output_cleanup
     asyncio.get_event_loop().run_until_complete(
         run_output_cleanup(output_dir, timedelta(days=30))
     )
@@ -85,7 +85,7 @@ def test_output_cleanup_removes_db_row(tmp_output):
     )
     _make_stem(output_dir, "old_lesson2", age_days=40)
 
-    from api.cleanup import run_output_cleanup
+    from api.utils.cleanup import run_output_cleanup
     asyncio.get_event_loop().run_until_complete(
         run_output_cleanup(output_dir, timedelta(days=30))
     )
@@ -97,7 +97,7 @@ def test_output_cleanup_skips_fresh_stem(tmp_output):
     _, output_dir = tmp_output
     _make_stem(output_dir, "fresh", age_days=0)
 
-    from api.cleanup import run_output_cleanup
+    from api.utils.cleanup import run_output_cleanup
     asyncio.get_event_loop().run_until_complete(
         run_output_cleanup(output_dir, timedelta(days=30))
     )
@@ -109,7 +109,7 @@ def test_output_cleanup_tolerates_missing_files(tmp_output):
     _make_stem(output_dir, "partial", age_days=40)
     (output_dir / "partial_summary.md").unlink()  # simulate already-gone file
 
-    from api.cleanup import run_output_cleanup
+    from api.utils.cleanup import run_output_cleanup
     # Must not raise
     asyncio.get_event_loop().run_until_complete(
         run_output_cleanup(output_dir, timedelta(days=30))
@@ -120,7 +120,7 @@ def test_output_cleanup_noop_for_forever(tmp_output):
     _, output_dir = tmp_output
     _make_stem(output_dir, "keep_me", age_days=400)
 
-    from api.cleanup import run_output_cleanup
+    from api.utils.cleanup import run_output_cleanup
     asyncio.get_event_loop().run_until_complete(
         run_output_cleanup(output_dir, None)
     )

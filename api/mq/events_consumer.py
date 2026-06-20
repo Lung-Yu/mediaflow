@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import redis.asyncio as aioredis
-from api.event_processor import process_event
+from api.services.event_processor import process_event
 
 log = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@
 import time
 from fastapi import APIRouter
 from pydantic import BaseModel
-from api.event_processor import process_event
+from api.services.event_processor import process_event
 
 router = APIRouter(prefix="/events")
 

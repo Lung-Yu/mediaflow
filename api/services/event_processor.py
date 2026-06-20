@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 from api import db
-from api.webhook import notify
+from api.services.webhook import notify
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ async def process_event(fields: dict) -> str:
 
     if event == "task.completed":
         try:
-            from api import minio_client as minio_mod
+            from api.utils import minio as minio_mod
             client = minio_mod.get_client()
             output_dir = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
             loop = asyncio.get_event_loop()

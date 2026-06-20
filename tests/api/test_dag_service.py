@@ -30,11 +30,11 @@ async def test_app_state_has_redis_after_lifespan(mock_pool, mock_redis):
          patch("redis.asyncio.from_url", return_value=mock_redis), \
          patch("api.db.init", AsyncMock()), \
          patch("api.main.reconcile", AsyncMock()), \
-         patch("api.minio_client.init_client"), \
-         patch("api.minio_client.get_client", return_value=MagicMock()), \
-         patch("api.cleanup.cleanup_loop", AsyncMock()), \
-         patch("api.mq.consumer.run", AsyncMock()), \
-         patch("api.mq.queue_consumer.run", AsyncMock()):
+         patch("api.utils.minio.init_client"), \
+         patch("api.utils.minio.get_client", return_value=MagicMock()), \
+         patch("api.utils.cleanup.cleanup_loop", AsyncMock()), \
+         patch("api.mq.events_consumer.run", AsyncMock()), \
+         patch("api.mq.jobs_consumer.run", AsyncMock()):
         from api.main import app, lifespan
         async with lifespan(app):
             assert app.state.redis is mock_redis

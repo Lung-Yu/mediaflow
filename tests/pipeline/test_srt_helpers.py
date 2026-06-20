@@ -1,4 +1,4 @@
-import api.srt as srtlib
+import api.utils.srt as srtlib
 
 
 def test_to_seconds_zero():

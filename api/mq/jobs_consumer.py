@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from api import db
-from api import minio_client as minio_mod
+from api.utils import minio as minio_mod
 
 log = logging.getLogger(__name__)
 

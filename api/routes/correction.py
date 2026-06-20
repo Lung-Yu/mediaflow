@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from api.services import correction as correction_svc
-from api import minio_client as minio_mod
+from api.utils import minio as minio_mod
 
 router = APIRouter(prefix="/jobs/{job_id}/correction", tags=["correction"])
 

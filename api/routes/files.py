@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
-from api import srt as srtlib
+from api.utils import srt as srtlib
 
 router = APIRouter(prefix="/files")
 

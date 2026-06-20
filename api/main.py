@@ -15,12 +15,12 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
 from api import db
-from api import minio_client as minio_mod
-from api import cleanup
-from api.lifecycle import parse_retention
-from api.reconcile import reconcile
-from api.mq import consumer
-from api.mq import queue_consumer
+from api.utils import minio as minio_mod
+from api.utils import cleanup
+from api.utils.lifecycle import parse_retention
+from api.services.reconcile import reconcile
+from api.mq import events_consumer
+from api.mq import jobs_consumer
 from api.routes import clip, correction, dag_callback, events, files, jobs as jobs_router, stats, status, tasks, upload
 
 DATABASE_URL = os.getenv(
@@ -77,8 +77,8 @@ async def lifespan(app: FastAPI):
     output_dir = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
     cleanup_task = asyncio.create_task(cleanup.cleanup_loop(output_dir, output_retention))
 
-    redis_task = asyncio.create_task(consumer.run())
-    queue_task = asyncio.create_task(queue_consumer.run())
+    redis_task = asyncio.create_task(events_consumer.run())
+    queue_task = asyncio.create_task(jobs_consumer.run())
     yield
     for task in [cleanup_task, redis_task, queue_task]:
         task.cancel()
