@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_STAGES = [
     {"id": "preprocess",       "enabled": True},
+    {"id": "segment_audio",    "enabled": False},
     {"id": "transcribe",       "enabled": True},
     {"id": "verify_segments",  "enabled": False},
     {"id": "correct_srt",      "enabled": False},
@@ -52,11 +53,22 @@ def _adapt_preprocess(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return {**ctx, "audio_path": audio_path}, {"filename": input_path.name}
 
 
+def _adapt_segment_audio(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    audio_path = ctx["audio_path"]
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Processed WAV not found: {audio_path}")
+    manifest = stages.segment_audio(audio_path, ctx["stem"], cfg)
+    return {**ctx, "chunk_manifest": manifest}, {}
+
+
 def _adapt_transcribe(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     audio_path = ctx["audio_path"]
     if not audio_path.exists():
         raise FileNotFoundError(f"Processed WAV not found: {audio_path}")
-    srt_path = stages.transcribe(audio_path, ctx["stem"], ctx["output_dir"], cfg)
+    srt_path = stages.transcribe(
+        audio_path, ctx["stem"], ctx["output_dir"], cfg,
+        chunk_manifest=ctx.get("chunk_manifest"),
+    )
     return {**ctx, "srt_path": srt_path}, {"output_path": str(srt_path)}
 
 
@@ -110,6 +122,7 @@ def _adapt_detect_chapters(ctx: dict, cfg: dict) -> tuple[dict, dict]:
 
 STAGE_RUNNERS: dict[str, Callable] = {
     "preprocess":      _adapt_preprocess,
+    "segment_audio":   _adapt_segment_audio,
     "transcribe":      _adapt_transcribe,
     "verify_segments": _adapt_verify_segments,
     "correct_srt":     _adapt_correct_srt,

@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import httpx
 import ollama as _ollama
@@ -109,6 +110,89 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
     return out
 
 
+# ── Stage 1b: Audio Segmentation ───────────────────────────────────────────
+
+def _get_audio_duration(audio_path: Path) -> float:
+    """Return duration in seconds via ffprobe."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(audio_path)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(result.stdout.strip())
+
+
+def _detect_silences(audio_path: Path, noise_db: float, min_duration: float) -> list[tuple[float, float]]:
+    """Return list of (silence_start, silence_end) in seconds using ffmpeg silencedetect."""
+    af = f"silencedetect=noise={noise_db}dB:d={min_duration}"
+    result = subprocess.run(
+        ["ffmpeg", "-i", str(audio_path), "-af", af, "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    output = result.stderr
+    starts = [float(m) for m in re.findall(r"silence_start:\s*([\d.]+)", output)]
+    ends   = [float(m) for m in re.findall(r"silence_end:\s*([\d.]+)", output)]
+    return list(zip(starts, ends[:len(starts)]))
+
+
+def _compute_chunk_ranges(
+    silences: list[tuple[float, float]],
+    total_duration: float,
+    max_chunk_sec: float,
+) -> list[tuple[float, float]]:
+    """Split total_duration into ranges ≤ max_chunk_sec, cutting at silence midpoints."""
+    split_points = [0.0]
+    chunk_start = 0.0
+
+    for sil_start, sil_end in silences:
+        if sil_start - chunk_start >= max_chunk_sec:
+            cut = (sil_start + sil_end) / 2.0
+            split_points.append(cut)
+            chunk_start = cut
+
+    split_points.append(total_duration)
+    return list(zip(split_points[:-1], split_points[1:]))
+
+
+def segment_audio(audio_path: Path, stem: str, cfg: dict) -> Optional[list]:
+    """Split cleaned WAV at silence boundaries into chunks ≤ max_chunk_duration.
+
+    Returns None if audio is short enough that chunking isn't needed.
+    Otherwise returns a manifest: [{"path": Path, "offset_sec": float}, ...]
+    Chunk WAVs are written to 2_processing/{stem}_chunks/.
+    """
+    seg_cfg = cfg.get("pipeline", {}).get("stages_config", {}).get("segment_audio", {})
+    min_duration     = float(seg_cfg.get("min_audio_duration", 600))   # skip if < 10 min
+    max_chunk_sec    = float(seg_cfg.get("max_chunk_duration", 300))    # 5-min chunks
+    noise_db         = float(seg_cfg.get("silence_noise_db", -40))
+    min_silence      = float(seg_cfg.get("min_silence_duration", 0.5))
+
+    total = _get_audio_duration(audio_path)
+    if total <= min_duration:
+        log.info("segment_audio: %.0fs ≤ %.0fs threshold — skipping chunking", total, min_duration)
+        return None
+
+    silences = _detect_silences(audio_path, noise_db, min_silence)
+    ranges = _compute_chunk_ranges(silences, total, max_chunk_sec)
+    log.info("segment_audio: %.0fs → %d chunks (max %.0fs each)", total, len(ranges), max_chunk_sec)
+
+    chunk_dir = audio_path.parent / f"{stem}_chunks"
+    chunk_dir.mkdir(exist_ok=True)
+
+    manifest = []
+    for i, (start, end) in enumerate(ranges):
+        chunk_path = chunk_dir / f"chunk_{i:03d}.wav"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(audio_path),
+             "-ss", str(start), "-to", str(end),
+             "-c", "copy", str(chunk_path)],
+            check=True, capture_output=True,
+        )
+        manifest.append({"path": chunk_path, "offset_sec": start})
+
+    return manifest
+
+
 # ── Stage 2: Transcription ──────────────────────────────────────────────────
 
 def _seconds_to_srt_time(seconds: float) -> str:
@@ -131,11 +215,8 @@ def _segments_to_srt(segments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path:
-    """POST to Whisper HTTP service (/transcribe_segments) and save SRT."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    srt_path = output_dir / f"{stem}.srt"
-
+def _call_whisper(audio_path: Path, cfg: dict) -> list[dict]:
+    """POST one audio file to Whisper /transcribe_segments; return raw segments."""
     service_url = cfg["whisper"]["service_url"].rstrip("/")
     language = cfg["whisper"].get("language", "zh")
     initial_prompt = cfg["whisper"].get("initial_prompt", "") or ""
@@ -144,6 +225,51 @@ def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path
     if initial_prompt:
         params["initial_prompt"] = initial_prompt
 
+    try:
+        with open(audio_path, "rb") as f:
+            resp = httpx.post(
+                f"{service_url}/transcribe_segments",
+                files={"audio": (audio_path.name, f)},
+                params=params,
+                timeout=1800.0,
+            )
+        resp.raise_for_status()
+    except httpx.ConnectError:
+        raise RuntimeError(
+            f"Cannot reach Whisper service at {service_url}. "
+            "Start it before running the pipeline."
+        )
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"Whisper service error {exc.response.status_code}: {exc.response.text[:300]}"
+        ) from exc
+
+    return resp.json().get("segments", [])
+
+
+def _write_transcript(segments: list[dict], stem: str, output_dir: Path) -> Path:
+    """Write SRT and _segments.json; return srt_path."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    srt_path = output_dir / f"{stem}.srt"
+    nonempty = [s for s in segments if s.get("text", "").strip()]
+    srt_path.write_text(_segments_to_srt(segments), encoding="utf-8")
+    seg_path = output_dir / f"{stem}_segments.json"
+    seg_path.write_text(json.dumps(nonempty, ensure_ascii=False, indent=2), encoding="utf-8")
+    return srt_path
+
+
+def transcribe(
+    audio_path: Path,
+    stem: str,
+    output_dir: Path,
+    cfg: dict,
+    chunk_manifest: Optional[list] = None,
+) -> Path:
+    """POST to Whisper HTTP service (/transcribe_segments) and save SRT.
+
+    If chunk_manifest is provided (from segment_audio stage), each chunk is
+    transcribed separately and timestamps are offset before merging.
+    """
     _t0 = time.monotonic()
     _stop = threading.Event()
 
@@ -153,37 +279,24 @@ def transcribe(audio_path: Path, stem: str, output_dir: Path, cfg: dict) -> Path
 
     threading.Thread(target=_heartbeat, daemon=True, name=f"hb-{stem}").start()
     try:
-        try:
-            with open(audio_path, "rb") as f:
-                resp = httpx.post(
-                    f"{service_url}/transcribe_segments",
-                    files={"audio": (audio_path.name, f)},
-                    params=params,
-                    timeout=1800.0,
-                )
-            resp.raise_for_status()
-        except httpx.ConnectError:
-            raise RuntimeError(
-                f"Cannot reach Whisper service at {service_url}. "
-                "Start it before running the pipeline."
-            )
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"Whisper service error {exc.response.status_code}: {exc.response.text[:300]}"
-            ) from exc
+        if chunk_manifest:
+            segments = []
+            for i, chunk in enumerate(chunk_manifest):
+                log.info("transcribe chunk %d/%d: offset=%.1fs", i + 1, len(chunk_manifest), chunk["offset_sec"])
+                chunk_segs = _call_whisper(chunk["path"], cfg)
+                for seg in chunk_segs:
+                    seg["start"] += chunk["offset_sec"]
+                    seg["end"]   += chunk["offset_sec"]
+                segments.extend(chunk_segs)
+        else:
+            segments = _call_whisper(audio_path, cfg)
     finally:
         _stop.set()
 
-    segments = resp.json().get("segments", [])
-    # Filter empty segments before saving — keeps positional alignment with the SRT.
-    nonempty = [s for s in segments if s.get("text", "").strip()]
-    srt_content = _segments_to_srt(segments)
-    srt_path.write_text(srt_content, encoding="utf-8")
+    srt_path = _write_transcript(segments, stem, output_dir)
 
-    seg_path = output_dir / f"{stem}_segments.json"
-    seg_path.write_text(json.dumps(nonempty, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    log.info("transcribe done: %s → %s (%d segments)", stem, srt_path.name, len(nonempty))
+    nonempty_count = sum(1 for s in segments if s.get("text", "").strip())
+    log.info("transcribe done: %s → %s (%d segments)", stem, srt_path.name, nonempty_count)
     return srt_path
 
 

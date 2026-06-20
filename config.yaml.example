@@ -14,6 +14,8 @@ pipeline:
   stages:
     - id: preprocess
       enabled: true
+    - id: segment_audio
+      enabled: false               # split long audio at silence boundaries before transcribing
     - id: transcribe
       enabled: true
     - id: verify_segments
@@ -26,6 +28,12 @@ pipeline:
       enabled: true
     - id: detect_chapters
       enabled: false               # silence-gap chapter detection + Ollama titling
+
+segment_audio:
+  min_audio_duration: 600     # seconds — skip chunking for files shorter than this (10 min)
+  max_chunk_duration: 300     # seconds — target max chunk length (5 min)
+  silence_noise_db: -40       # dB threshold for silence detection (after loudnorm, -40 is safe)
+  min_silence_duration: 0.5   # minimum silence length in seconds to be a valid split point
 
 verification:
   logprob_threshold: -0.8          # flag segments with avg_logprob below this
