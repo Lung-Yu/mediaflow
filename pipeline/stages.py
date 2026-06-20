@@ -161,7 +161,7 @@ def segment_audio(audio_path: Path, stem: str, cfg: dict) -> Optional[list]:
     Otherwise returns a manifest: [{"path": Path, "offset_sec": float}, ...]
     Chunk WAVs are written to 2_processing/{stem}_chunks/.
     """
-    seg_cfg = cfg.get("pipeline", {}).get("stages_config", {}).get("segment_audio", {})
+    seg_cfg = cfg.get("segment_audio", {})
     min_duration     = float(seg_cfg.get("min_audio_duration", 600))   # skip if < 10 min
     max_chunk_sec    = float(seg_cfg.get("max_chunk_duration", 300))    # 5-min chunks
     noise_db         = float(seg_cfg.get("silence_noise_db", -40))
