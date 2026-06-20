@@ -321,7 +321,7 @@ def diarize(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> Path:
         raw = json.loads(seg_path.read_text(encoding="utf-8"))
         whisper_segs = [{"start": s["start"], "end": s["end"]} for s in raw]
 
-    library = _load_speaker_library(d_cfg.get("library_path", "data/speaker_library.json"))
+    library = _load_speaker_library(d_cfg.get("library_path", "data/speakers/library.json"))
     match_threshold = d_cfg.get("match_threshold", 0.70)
 
     try:

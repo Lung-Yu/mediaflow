@@ -45,7 +45,7 @@ diarization:
   max_speakers: 6                  # cap for auto-detection via silhouette score
   speaker_format: "【{speaker}】"   # prefix format; use "" to disable labels in SRT
   speaker_names: {}                # display name override after diarization e.g. {SPEAKER_00: 老師}
-  library_path: data/speaker_library.json  # voiceprint library for named speaker matching
+  library_path: data/speakers/library.json  # voiceprint library for named speaker matching
   match_threshold: 0.70            # cosine similarity threshold; lower = more permissive
 
 whisper:

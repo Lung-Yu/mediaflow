@@ -8,7 +8,7 @@ Usage:
     python -m pipeline.enroll --list
     python -m pipeline.enroll --remove 老師
 
-The library is stored in data/speaker_library.json (relative to the project root).
+The library is stored in data/speakers/library.json (relative to the project root).
 The diarize service at localhost:9003 must be running to enroll a speaker.
 """
 import argparse
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import httpx
 
-LIBRARY_PATH = Path("data/speaker_library.json")
+LIBRARY_PATH = Path("data/speakers/library.json")
 DEFAULT_SERVICE = "http://localhost:9003"
 
 

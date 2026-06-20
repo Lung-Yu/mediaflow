@@ -19,8 +19,6 @@ pipeline.db
 # Runtime data (not versioned)
 workspace/
 data/
-enrollment_clips/
-speaker-library.json
 
 # Audio files at project root (media belongs in workspace/)
 *.m4a
