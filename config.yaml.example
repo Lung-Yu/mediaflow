@@ -70,10 +70,17 @@ diarization:
 whisper:
   service_url: http://localhost:9001
   language: zh
-  # initial_prompt: warm up Whisper with domain vocabulary to improve accuracy.
-  # Leave empty ("") or omit to disable. Restart watcher after editing.
-  # Example for Java/Spring courses:
-  # initial_prompt: "日誌 Actuator MDC Spring Boot SpringBoot Logger SLF4J Logback AOP IoC DI Bean JPA Hibernate Maven Gradle JVM GC"
+
+  # beam_size: larger = more accurate, slower. Default 5. Try 10 for maximum accuracy.
+  beam_size: 5
+
+  # condition_on_previous_text: pass previous output as context across internal 30s windows.
+  # Reduces repetition and hallucination at chunk boundaries. Default true.
+  condition_on_previous_text: true
+
+  # initial_prompt: default vocabulary hint for drop-in files (workspace/1_input/).
+  # Per-upload override is set via the upload API (takes precedence over this).
+  # Leave empty to rely on per-request prompts only.
   initial_prompt: ""
 
 ollama:

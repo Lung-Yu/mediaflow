@@ -27,7 +27,13 @@ MODEL = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-large-v3-mlx")
 _model_loaded = False
 
 
-def _do_transcribe(wav_bytes: bytes, language: str, initial_prompt: str) -> dict:
+def _do_transcribe(
+    wav_bytes: bytes,
+    language: str,
+    initial_prompt: str,
+    beam_size: int = 5,
+    condition_on_previous_text: bool = True,
+) -> dict:
     """Blocking — runs in thread pool executor."""
     import mlx_whisper
     global _model_loaded
@@ -37,7 +43,11 @@ def _do_transcribe(wav_bytes: bytes, language: str, initial_prompt: str) -> dict
         path = Path(tmp.name)
 
     try:
-        kwargs: dict = {"path_or_hf_repo": MODEL}
+        kwargs: dict = {
+            "path_or_hf_repo": MODEL,
+            "beam_size": beam_size,
+            "condition_on_previous_text": condition_on_previous_text,
+        }
         if language:
             kwargs["language"] = language
         if initial_prompt:
@@ -79,11 +89,16 @@ async def transcribe_segments_endpoint(
     audio: UploadFile = File(...),
     language: str = Query("zh"),
     initial_prompt: str = Query(""),
+    beam_size: int = Query(5),
+    condition_on_previous_text: bool = Query(True),
 ):
     try:
         data = await audio.read()
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _do_transcribe, data, language, initial_prompt)
+        result = await loop.run_in_executor(
+            None, _do_transcribe, data, language, initial_prompt,
+            beam_size, condition_on_previous_text,
+        )
         return JSONResponse(result)
     except Exception as exc:
         print(f"[whisper/segments] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)

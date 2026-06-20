@@ -68,6 +68,7 @@ def _adapt_transcribe(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = stages.transcribe(
         audio_path, ctx["stem"], ctx["output_dir"], cfg,
         chunk_manifest=ctx.get("chunk_manifest"),
+        initial_prompt=ctx.get("initial_prompt", ""),
     )
     return {**ctx, "srt_path": srt_path}, {"output_path": str(srt_path)}
 

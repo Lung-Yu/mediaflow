@@ -230,15 +230,19 @@ def _segments_to_srt(segments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _call_whisper(audio_path: Path, cfg: dict) -> list[dict]:
+def _call_whisper(audio_path: Path, cfg: dict, initial_prompt: str = "") -> list[dict]:
     """POST one audio file to Whisper /transcribe_segments; return raw segments."""
     service_url = cfg["whisper"]["service_url"].rstrip("/")
     language = cfg["whisper"].get("language", "zh")
-    initial_prompt = cfg["whisper"].get("initial_prompt", "") or ""
+    prompt = initial_prompt or cfg["whisper"].get("initial_prompt", "") or ""
 
-    params = {"language": language}
-    if initial_prompt:
-        params["initial_prompt"] = initial_prompt
+    params: dict = {
+        "language": language,
+        "beam_size": int(cfg["whisper"].get("beam_size", 5)),
+        "condition_on_previous_text": str(cfg["whisper"].get("condition_on_previous_text", True)).lower(),
+    }
+    if prompt:
+        params["initial_prompt"] = prompt
 
     try:
         with open(audio_path, "rb") as f:
@@ -279,11 +283,13 @@ def transcribe(
     output_dir: Path,
     cfg: dict,
     chunk_manifest: Optional[list] = None,
+    initial_prompt: str = "",
 ) -> Path:
     """POST to Whisper HTTP service (/transcribe_segments) and save SRT.
 
     If chunk_manifest is provided (from segment_audio stage), each chunk is
     transcribed separately and timestamps are offset before merging.
+    initial_prompt overrides config when provided (per-request from upload API).
     """
     _t0 = time.monotonic()
     _stop = threading.Event()
@@ -298,13 +304,13 @@ def transcribe(
             segments = []
             for i, chunk in enumerate(chunk_manifest):
                 log.info("transcribe chunk %d/%d: offset=%.1fs", i + 1, len(chunk_manifest), chunk["offset_sec"])
-                chunk_segs = _call_whisper(chunk["path"], cfg)
+                chunk_segs = _call_whisper(chunk["path"], cfg, initial_prompt)
                 for seg in chunk_segs:
                     seg["start"] += chunk["offset_sec"]
                     seg["end"]   += chunk["offset_sec"]
                 segments.extend(chunk_segs)
         else:
-            segments = _call_whisper(audio_path, cfg)
+            segments = _call_whisper(audio_path, cfg, initial_prompt)
     finally:
         _stop.set()
 
