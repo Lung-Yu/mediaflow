@@ -41,6 +41,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-mediaflow}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme}
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes:
       - minio-data:/data
     ports:
@@ -106,7 +107,94 @@ services:
     depends_on:
       - api
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SERVER_HTTP_PORT=3001
+      - GF_SMTP_ENABLED=${GRAFANA_SMTP_ENABLED:-false}
+      - GF_SMTP_HOST=${GRAFANA_SMTP_HOST:-}
+      - GF_SMTP_USER=${GRAFANA_SMTP_USER:-}
+      - GF_SMTP_PASSWORD=${GRAFANA_SMTP_PASSWORD:-}
+      - GF_SMTP_FROM_ADDRESS=${GRAFANA_SMTP_FROM:-alerts@mediaflow.local}
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3001"
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8081:8080"
+    command:
+      - --docker_only=true
+      - --store_container_labels=false
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://mediaflow:${POSTGRES_PASSWORD:-changeme}@postgres:5432/mediaflow?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  blackbox_exporter:
+    image: prom/blackbox-exporter:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml
+    ports:
+      - "9115:9115"
+
 volumes:
   redis-data:
   minio-data:
   postgres-data:
+  prometheus-data:
+  grafana-data:
