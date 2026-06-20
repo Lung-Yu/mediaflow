@@ -17,8 +17,11 @@ ctx is a dict carrying paths between stages:
 pub_extra is merged into the stage.completed Redis event.
 """
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional
+
+from opentelemetry import metrics as _otel_metrics
 
 from pipeline import stages
 from pipeline.mq.publisher import EventPublisher
@@ -185,7 +188,20 @@ def execute(
             log.warning("Stage %r has no runner — add to runner.STAGE_RUNNERS", sid)
             continue
         pub.publish("stage.started", ctx["stem"], stage=sid)
+        t0 = time.monotonic()
         ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
+        elapsed = time.monotonic() - t0
+
+        meter = _otel_metrics.get_meter("mediaflow.pipeline")
+        meter.create_histogram(
+            "mediaflow.stage.duration", unit="s",
+            description="Pipeline stage processing time",
+        ).record(elapsed, {"stage": sid})
+        meter.create_gauge(
+            "mediaflow.pipeline.last_stage_ts", unit="s",
+            description="Unix timestamp of last stage completion event",
+        ).set(time.time())
+
         pub.publish("stage.completed", ctx["stem"], stage=sid, **extra)
         if stop_after and sid == stop_after:
             log.info("stop_after_stage=%s reached, halting pipeline", stop_after)

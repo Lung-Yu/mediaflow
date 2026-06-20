@@ -22,16 +22,34 @@ from pipeline.config import load, workspace
 from pipeline.lifecycle import parse_retention, scan_and_expire, safe_unlink
 from pipeline.mq.publisher import EventPublisher
 from pipeline import runner
+from pipeline import telemetry as _tel
+from opentelemetry import metrics as _otel_metrics
 
 log = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
 
 
+def _init_telemetry(cfg: dict) -> None:
+    endpoint = cfg.get("otel", {}).get("endpoint", "localhost:4317")
+    _tel.init(endpoint)
+
+
+def _meter() -> "_otel_metrics.Meter":
+    return _otel_metrics.get_meter("mediaflow.pipeline")
+
+
 def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
     """Run all configured stages for a single file. Called in a worker thread."""
     stem = path.stem
     ws = Path(cfg["pipeline"]["workspace_dir"])
+
+    _meter().create_up_down_counter(
+        "mediaflow.pipeline.active_jobs", unit="jobs"
+    ).add(1)
+    _meter().create_counter(
+        "mediaflow.jobs.submitted", unit="jobs"
+    ).add(1, {"recording_type": cfg.get("pipeline", {}).get("recording_type", "auto")})
 
     ctx = {
         "stem": stem,
@@ -60,11 +78,24 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         if parse_retention(lc.get("archive", "forever")) == timedelta(0):
             safe_unlink(ws / "4_archive" / path.name, "archive")
 
+        _meter().create_counter(
+            "mediaflow.jobs.completed", unit="jobs"
+        ).add(1, {"recording_type": cfg.get("pipeline", {}).get("recording_type", "auto")})
+        _meter().create_up_down_counter(
+            "mediaflow.pipeline.active_jobs", unit="jobs"
+        ).add(-1)
+
         pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
         log.info("DONE %s", stem)
 
     except Exception as exc:
         log.error("Pipeline FAILED for %s: %s", stem, exc)
+        _meter().create_counter(
+            "mediaflow.jobs.failed", unit="jobs"
+        ).add(1, {"stage": ctx.get("_last_stage", "unknown"), "error_type": type(exc).__name__})
+        _meter().create_up_down_counter(
+            "mediaflow.pipeline.active_jobs", unit="jobs"
+        ).add(-1)
         pub.publish("task.failed", stem, error_msg=str(exc))
         _mark_failed(path)
 
@@ -85,6 +116,9 @@ def _run_rerun(stem: str, from_stage: "str | None", cfg: dict, pub: EventPublish
         rerun(stem, from_stage or "preprocess", cfg, pub)
     except Exception as exc:
         log.error("Rerun FAILED for %s: %s", stem, exc)
+        _meter().create_counter(
+            "mediaflow.jobs.failed", unit="jobs"
+        ).add(1, {"stage": from_stage or "unknown", "error_type": type(exc).__name__})
         pub.publish("task.failed", stem, error_msg=str(exc))
 
 
@@ -180,6 +214,21 @@ def run():
     pub = EventPublisher(cfg)
     input_dir = workspace(cfg, "1_input")
     input_dir.mkdir(parents=True, exist_ok=True)
+
+    _init_telemetry(cfg)
+
+    def _queue_depth_callback(options):
+        from opentelemetry.metrics import Observation
+        depth = len([f for f in input_dir.iterdir()
+                     if f.is_file() and not f.name.startswith('.')])
+        yield Observation(depth)
+
+    _otel_metrics.get_meter("mediaflow.pipeline").create_observable_gauge(
+        "mediaflow.queue.depth",
+        callbacks=[_queue_depth_callback],
+        unit="files",
+        description="Files waiting in 1_input/",
+    )
 
     db_path = os.getenv("DB_PATH", "./data/pipeline.db")
     stop_ev = threading.Event()
