@@ -6,6 +6,7 @@ On error: renames file to .failed so it is skipped on next restart.
 """
 import logging
 import os
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -76,6 +77,11 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         wav_setting = lc.get("wav") or ("immediate" if _old_cleanup else "keep")
         if parse_retention(wav_setting) == timedelta(0):
             safe_unlink(ctx["audio_path"], "wav")
+
+        chunk_dir = ws / "2_processing" / f"{stem}_chunks"
+        if chunk_dir.exists():
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            log.info("Cleaned up chunk dir: %s", chunk_dir.name)
 
         if parse_retention(lc.get("archive", "forever")) == timedelta(0):
             safe_unlink(ws / "4_archive" / path.name, "archive")
