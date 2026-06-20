@@ -6,6 +6,7 @@ policies:
       - receiver: MediaFlow Webhook
         matchers:
           - severity =~ "critical|warning"
+        continue: true
       - receiver: MediaFlow Email
         matchers:
           - severity = critical

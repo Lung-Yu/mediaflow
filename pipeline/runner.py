@@ -188,6 +188,7 @@ def execute(
             log.warning("Stage %r has no runner — add to runner.STAGE_RUNNERS", sid)
             continue
         pub.publish("stage.started", ctx["stem"], stage=sid)
+        ctx["_last_stage"] = sid
         t0 = time.monotonic()
         ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
         elapsed = time.monotonic() - t0

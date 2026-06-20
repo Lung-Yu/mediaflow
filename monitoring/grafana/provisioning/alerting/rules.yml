@@ -73,6 +73,40 @@ groups:
         noDataState: Alerting
         execErrState: Alerting
 
+      - uid: diarize-down
+        title: "[Critical] Diarize service down"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "probe_success{instance=\"http://host.docker.internal:9003/health\"}"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Diarize service is not responding on :9003"
+        noDataState: OK
+        execErrState: Alerting
+
       - uid: pipeline-stuck
         title: "[Critical] Pipeline job stuck > 30 min"
         condition: B
@@ -173,3 +207,37 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "More than 25% of pipeline jobs have failed in the last hour"
+
+      - uid: stage-p95-anomaly
+        title: "[Warning] Stage duration P95 > 2x 7-day baseline"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 604800, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "histogram_quantile(0.95, sum(rate(mediaflow_stage_duration_seconds_bucket[1h])) by (le, stage)) > 2 * histogram_quantile(0.95, sum(rate(mediaflow_stage_duration_seconds_bucket[7d])) by (le, stage))"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "A pipeline stage P95 duration exceeds 2x its 7-day baseline"
+        noDataState: OK
+        execErrState: Alerting

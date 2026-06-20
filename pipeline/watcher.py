@@ -22,6 +22,7 @@ from pipeline.config import load, workspace
 from pipeline.lifecycle import parse_retention, scan_and_expire, safe_unlink
 from pipeline.mq.publisher import EventPublisher
 from pipeline import runner
+from pipeline import stages as _stages
 from pipeline import telemetry as _tel
 from opentelemetry import metrics as _otel_metrics
 
@@ -44,12 +45,13 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
     stem = path.stem
     ws = Path(cfg["pipeline"]["workspace_dir"])
 
+    recording_type = _stages._detect_recording_type(stem, cfg)
     _meter().create_up_down_counter(
         "mediaflow.pipeline.active_jobs", unit="jobs"
     ).add(1)
     _meter().create_counter(
         "mediaflow.jobs.submitted", unit="jobs"
-    ).add(1, {"recording_type": cfg.get("pipeline", {}).get("recording_type", "auto")})
+    ).add(1, {"recording_type": recording_type})
 
     ctx = {
         "stem": stem,
@@ -80,7 +82,7 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
 
         _meter().create_counter(
             "mediaflow.jobs.completed", unit="jobs"
-        ).add(1, {"recording_type": cfg.get("pipeline", {}).get("recording_type", "auto")})
+        ).add(1, {"recording_type": recording_type})
         _meter().create_up_down_counter(
             "mediaflow.pipeline.active_jobs", unit="jobs"
         ).add(-1)
