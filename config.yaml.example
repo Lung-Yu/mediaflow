@@ -47,6 +47,17 @@ preprocessing:
   vocal_separation: false          # set true to run Demucs htdemucs before ffmpeg (CPU, slow ~2-3x realtime)
   # demucs_bin: ./venv-diarize/bin/demucs   # override path if demucs lives elsewhere
 
+  # silence_threshold_db controls when silenceremove cuts audio.
+  # Default -50dB suits close-mic recordings. For far-field / quiet speakers,
+  # lower to -60dB to avoid clipping soft speech.
+  silence_threshold_db: -50
+
+  # rnnoise_model enables RNNoise neural denoising (FFmpeg arnndn filter).
+  # Recommended for far-field recordings, noisy rooms, or laptop mics.
+  # Models are in models/ — bd.rnnn (general) or lq.rnnn (low-quality mic).
+  # Download: bash scripts/download-models.sh
+  # rnnoise_model: models/bd.rnnn
+
 diarization:
   service_url: http://localhost:9003
   num_speakers: null               # set to known count for better accuracy (e.g. 2)

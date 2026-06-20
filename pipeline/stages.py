@@ -82,20 +82,35 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
         log.info("preprocess: running Demucs vocal separation (slow — CPU)…")
         source = _vocal_separation(input_path, proc_dir, cfg)
 
-    af = (
-        "aformat=channel_layouts=mono:sample_rates=16000,"
-        "highpass=f=80,"
-        "afftdn=nf=-25,"
-        "anlmdn=s=7:p=0.002:r=0.002:m=15,"
-        "speechnorm=e=12.5:r=0.00001:l=1,"
-        "equalizer=f=1500:width_type=o:width=2:g=3,"
-        "loudnorm=I=-16:TP=-1.5:LRA=11,"
-        "dynaudnorm=f=200:g=11:p=0.95:m=5.0,"
-        "silenceremove=start_periods=1:start_silence=0.5:start_threshold=-50dB:detection=peak"
-    )
+    silence_threshold = pre_cfg.get("silence_threshold_db", -50)
+
+    filters = [
+        "aformat=channel_layouts=mono:sample_rates=16000",
+        "highpass=f=80",
+        "afftdn=nf=-25",
+        "anlmdn=s=7:p=0.002:r=0.002:m=15",
+        "speechnorm=e=12.5:r=0.00001:l=1",
+        "equalizer=f=1500:width_type=o:width=2:g=3",
+        "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "dynaudnorm=f=200:g=11:p=0.95:m=5.0",
+        f"silenceremove=start_periods=1:start_silence=0.5:start_threshold={silence_threshold}dB:detection=peak",
+    ]
+
+    rnnoise_model = pre_cfg.get("rnnoise_model", "")
+    if rnnoise_model:
+        model_path = Path(rnnoise_model)
+        if not model_path.is_absolute():
+            model_path = Path(__file__).parent.parent / model_path
+        if model_path.exists():
+            # Insert after afftdn/anlmdn and before speechnorm — apply on clean signal
+            filters.insert(4, f"arnndn=m={model_path}")
+            log.info("preprocess: RNNoise enabled (%s)", model_path.name)
+        else:
+            log.warning("preprocess: rnnoise_model %r not found — skipping", rnnoise_model)
+
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(source), "-af", af,
+            ["ffmpeg", "-y", "-i", str(source), "-af", ",".join(filters),
              "-ar", "16000", "-ac", "1", "-vn", str(out)],
             check=True, capture_output=True, timeout=600,
         )

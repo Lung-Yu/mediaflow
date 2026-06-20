@@ -20,6 +20,9 @@ pipeline.db
 workspace/
 data/
 
+# ML models (binary, download via scripts/download-models.sh)
+models/
+
 # Audio files at project root (media belongs in workspace/)
 *.m4a
 *.mp4
