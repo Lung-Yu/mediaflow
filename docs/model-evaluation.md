@@ -50,22 +50,23 @@ ollama:
 
 還原方式：`config.yaml` 改回 `qwen2.5:7b`，無需重啟服務。
 
-#### 1-B: Breeze-7B-Instruct（聯發科台灣繁中特化）
+#### 1-B: Llama-Breeze2-8B-Instruct（聯發科台灣繁中特化，第二代）
 
-**預期效益**：台灣口語、本地術語理解最佳，7B 大小，記憶體與 7b 相當。
+**預期效益**：台灣口語、本地術語理解最佳，基於 Llama 3.1 8B，記憶體約 5 GB。
 
-HuggingFace: `MediaTek-Research/Breeze-7B-Instruct-v1_0`
+HuggingFace: `mradermacher/Llama-Breeze2-8B-Instruct-text-only-i1-GGUF`（Q4_K_M）
 
-切換方式（需先轉 GGUF）：
+切換方式：
 ```bash
-# 下載並用 llama.cpp 轉換（或找現成 GGUF）
-ollama create breeze-7b -f Modelfile
+curl -L "https://huggingface.co/mradermacher/Llama-Breeze2-8B-Instruct-text-only-i1-GGUF/resolve/main/Llama-Breeze2-8B-Instruct-text-only.i1-Q4_K_M.gguf" \
+  -o models/llama-breeze2-8b-q4_k_m.gguf
+ollama create breeze2-8b -f models/Modelfile.breeze2
 # config.yaml
 ollama:
-  model: breeze-7b
+  model: breeze2-8b
 ```
 
-> Ollama Hub 上如有現成 `mlx-community/breeze` 可直接 pull。
+還原方式：`config.yaml` 改回 `qwen2.5:14b`。
 
 ---
 
@@ -150,20 +151,27 @@ VRAM 峰值 ~10–12 GB，可能 OOM。先完成 2-A 評估再決定。
 
 ---
 
-### [1-B] Breeze-7B-Instruct + whisper-medium-mlx
+### [1-B] Llama-Breeze2-8B-Instruct + whisper-medium-mlx
 
-- 日期：–
-- commit：–
+- 日期：2026-06-21
+- 模型來源：`mradermacher/Llama-Breeze2-8B-Instruct-text-only-i1-GGUF`，Q4_K_M（4.6 GB）
+- 匯入方式：`ollama create breeze2-8b -f models/Modelfile.breeze2`
+- 測試音訊：`ain-tsmc-n8n-20260607-discussion01`（同 1-A）
 
-| 指標 | 較基準 |
-|------|--------|
-| 技術詞彙辨識 | – |
-| 繁體中文品質 | – |
-| correct_srt 修正率 | – |
-| 摘要品質 | – |
-| LLM 推論速度 | – |
-| 記憶體峰值 | – |
-| **結論** | – |
+| 指標 | 較 qwen2.5:14b |
+|------|----------------|
+| 繁體中文品質（整體摘要） | ✓ 全繁體，但內容偏短、細節不足 |
+| 主題段落指令遵循 | ✗ 自行加上編號且順序錯亂（1,2,3,7,5） |
+| 幻覺 | ✗ 出現「Pairite備案」等無意義詞 |
+| 關鍵時刻格式 | △ 混入「描述：」前綴，原始 SPEAKER tag 未整理 |
+| 時間段品質 | △ 出現 0 秒長度段落 |
+| LLM summarize 耗時 | ~2:58（與 14b 相近） |
+| 記憶體峰值 | 無 OOM（4.9 GB 模型） |
+| **結論** | ❌ 不採用。指令遵循不穩、有幻覺，全面輸給 qwen2.5:14b |
+
+**備註：**
+- Breeze2 基於 Llama 3.1 8B，繁中能力理論上優秀，但在結構化輸出任務（固定格式 prompt）的指令遵循明顯弱於 Qwen2.5 架構
+- config.yaml 已還原為 `qwen2.5:14b`
 
 ---
 
