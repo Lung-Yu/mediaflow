@@ -1,0 +1,62 @@
+{
+  "title": "MediaFlow — Overview",
+  "uid": "mediaflow-overview",
+  "tags": ["mediaflow"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Whisper",
+      "gridPos": {"h": 3, "w": 4, "x": 0, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "probe_success{instance=\"http://host.docker.internal:9001/health\"}"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Ollama",
+      "gridPos": {"h": 3, "w": 4, "x": 4, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "probe_success{instance=\"http://host.docker.internal:11434/api/tags\"}"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "Diarize",
+      "gridPos": {"h": 3, "w": 4, "x": 8, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "probe_success{instance=\"http://host.docker.internal:9003/health\"}"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active Jobs",
+      "gridPos": {"h": 3, "w": 4, "x": 12, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "mediaflow_pipeline_active_jobs"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 2}]}}}
+    },
+    {
+      "id": 5, "type": "stat", "title": "Queue Depth",
+      "gridPos": {"h": 3, "w": 4, "x": 16, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "mediaflow_queue_depth"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 5}]}}}
+    },
+    {
+      "id": 6, "type": "stat", "title": "Completed Today",
+      "gridPos": {"h": 3, "w": 4, "x": 20, "y": 0},
+      "targets": [{"datasource": {"uid": "prometheus"}, "expr": "increase(mediaflow_jobs_completed_total[24h])"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}]}}}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Stage Duration P50 / P95 (last 3h)",
+      "gridPos": {"h": 8, "w": 14, "x": 0, "y": 3},
+      "targets": [
+        {"datasource": {"uid": "prometheus"}, "expr": "histogram_quantile(0.5, rate(mediaflow_stage_duration_seconds_bucket[5m]))", "legendFormat": "P50 {{stage}}"},
+        {"datasource": {"uid": "prometheus"}, "expr": "histogram_quantile(0.95, rate(mediaflow_stage_duration_seconds_bucket[5m]))", "legendFormat": "P95 {{stage}}"}
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Job Throughput (per hour)",
+      "gridPos": {"h": 8, "w": 10, "x": 14, "y": 3},
+      "targets": [
+        {"datasource": {"uid": "prometheus"}, "expr": "increase(mediaflow_jobs_completed_total[1h])", "legendFormat": "Completed"},
+        {"datasource": {"uid": "prometheus"}, "expr": "increase(mediaflow_jobs_failed_total[1h])", "legendFormat": "Failed"}
+      ]
+    }
+  ]
+}
