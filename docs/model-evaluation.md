@@ -175,19 +175,40 @@ VRAM 峰值 ~10–12 GB，可能 OOM。先完成 2-A 評估再決定。
 
 ---
 
-### [2-A] （最佳LLM）+ whisper-large-v3-turbo
+### [2-A] qwen2.5:14b + whisper-large-v3-turbo
 
-- 日期：–
-- commit：–
+- 日期：2026-06-21
+- 模型：`mlx-community/whisper-large-v3-turbo`（mlx-whisper 0.4.3）
+- 測試音訊：`tests/fixtures/test-speech.m4a`（25 秒，macOS TTS Meijia 聲音）
 
-| 指標 | 較基準 |
-|------|--------|
-| 技術詞彙辨識 | – |
-| 幻覺率 | – |
-| 轉錄速度（realtime factor） | – |
-| VRAM 峰值 | – |
-| OOM 發生 | – |
-| **結論** | – |
+| 指標 | 結果 |
+|------|------|
+| OOM 發生 | ✅ 無 OOM（Apple Silicon 可正常執行） |
+| 轉錄速度 | ✅ 約 4 秒 / 25 秒音訊（~0.16× realtime，極快） |
+| beam_size > 1 | ❌ `NotImplementedError: Beam search decoder is not yet implemented` |
+| condition_on_previous_text | ❌ 同樣觸發 beam search 錯誤，必須完全跳過 |
+| 繁體中文（無 initial_prompt） | ❌ 輸出簡體中文 |
+| 繁體中文（有 initial_prompt 補救） | △ 切換為繁體，但所有句子合成一段、標點符號爛（出現 `７` 亂碼） |
+| 分段品質 | ❌ 無法正常斷句，全文一行 |
+| **結論** | ❌ 不採用。mlx-whisper 0.4.3 對 turbo 架構支援不完整；品質無法接受 |
+
+**根本原因：**
+- `whisper-large-v3-turbo` 使用 4 層 decoder（vs large-v3 的 32 層），在 mlx-whisper 0.4.3 中 beam search 路徑未實作
+- `condition_on_previous_text=True` 也觸發同樣問題，跳過後輸出退化
+- 0.4.3 是目前最新版，無更新可升
+
+**觀察到的 workaround（均不可接受）：**
+```yaml
+whisper:
+  beam_size: 1
+  # 仍需移除 condition_on_previous_text（在 whisper/service.py 層處理）
+  initial_prompt: "以下是繁體中文的錄音內容，請使用繁體中文輸出："
+```
+
+**後續行動：**
+- 監控 mlx-whisper 更新（0.5.x 或以上可能修正 turbo 支援）
+- 屆時重新測試：若 beam search 和 condition_on_previous_text 正常，重跑本 Phase
+- 還原：`ctl.sh` 改回 `whisper-medium-mlx`，`config.yaml` 移除 beam_size/initial_prompt
 
 ---
 
