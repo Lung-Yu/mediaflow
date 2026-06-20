@@ -5,7 +5,6 @@ pyyaml==6.0.2
 ollama>=0.3
 opentelemetry-sdk>=1.25.0
 opentelemetry-exporter-otlp-proto-grpc>=1.25.0
-opentelemetry-instrumentation-fastapi>=0.46b0
 prometheus-client>=0.21
 
 # API
@@ -15,6 +14,7 @@ uvicorn[standard]==0.39.0
 jinja2==3.1.6
 python-multipart==0.0.20  # GHSA-wp53/mj87/pp6c: fix versions 0.0.22-0.0.27 not yet on PyPI
 httpx==0.28.1
+opentelemetry-instrumentation-fastapi>=0.46b0
 
 # Shared
 aiofiles==24.1.0
