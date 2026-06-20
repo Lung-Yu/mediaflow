@@ -20,6 +20,14 @@ pipeline.db
 workspace/
 data/
 enrollment_clips/
+speaker-library.json
+
+# Audio files at project root (media belongs in workspace/)
+*.m4a
+*.mp4
+*.mp3
+*.wav
+*.flac
 
 # macOS
 .DS_Store
