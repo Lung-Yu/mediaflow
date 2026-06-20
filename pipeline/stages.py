@@ -699,6 +699,8 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
         if anchor:
             topic_segments.append({"topic": name, "start": anchor})
 
+    topic_segments.sort(key=lambda s: s["start"])
+
     # Derive end times from next segment's start
     for i, seg in enumerate(topic_segments):
         seg["end"] = topic_segments[i + 1]["start"] if i + 1 < len(topic_segments) else _fmt_duration(duration_s)
