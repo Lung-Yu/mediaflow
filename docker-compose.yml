@@ -143,6 +143,8 @@ services:
       - GF_SMTP_PASSWORD=${GRAFANA_SMTP_PASSWORD:-}
       - GF_SMTP_FROM_ADDRESS=${GRAFANA_SMTP_FROM:-alerts@mediaflow.local}
       - GF_UNIFIED_ALERTING_ENABLED=true
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:1/webhook-not-configured}
+      - GRAFANA_ALERT_EMAIL=${GRAFANA_ALERT_EMAIL:-alerts@localhost}
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards

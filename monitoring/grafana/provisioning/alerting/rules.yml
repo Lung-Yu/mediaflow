@@ -1,0 +1,175 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: mediaflow-critical
+    folder: MediaFlow
+    interval: 1m
+    rules:
+      - uid: whisper-down
+        title: "[Critical] Whisper service down"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "probe_success{instance=\"http://host.docker.internal:9001/health\"}"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Whisper HTTP service is not responding on :9001"
+        noDataState: Alerting
+        execErrState: Alerting
+
+      - uid: ollama-down
+        title: "[Critical] Ollama service down"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "probe_success{instance=\"http://host.docker.internal:11434/api/tags\"}"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Ollama service is not responding on :11434"
+        noDataState: Alerting
+        execErrState: Alerting
+
+      - uid: pipeline-stuck
+        title: "[Critical] Pipeline job stuck > 30 min"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "(mediaflow_pipeline_active_jobs > 0) and (time() - mediaflow_pipeline_last_stage_ts > 1800)"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "A pipeline job has not progressed for 30+ minutes"
+
+  - orgId: 1
+    name: mediaflow-warning
+    folder: MediaFlow
+    interval: 5m
+    rules:
+      - uid: disk-low
+        title: "[Warning] Disk space < 20%"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"} * 100"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [20], type: lt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Disk free space is below 20% — workspace volume may fill up"
+
+      - uid: job-failure-rate
+        title: "[Warning] Job failure rate > 25%"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: prometheus
+            model:
+              expr: "increase(mediaflow_jobs_failed_total[1h]) / (increase(mediaflow_jobs_failed_total[1h]) + increase(mediaflow_jobs_completed_total[1h])) * 100"
+              instant: true
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator: {params: [25], type: gt}
+                  operator: {type: and}
+                  query: {params: [A]}
+                  reducer: {params: [], type: last}
+                  type: query
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 25% of pipeline jobs have failed in the last hour"

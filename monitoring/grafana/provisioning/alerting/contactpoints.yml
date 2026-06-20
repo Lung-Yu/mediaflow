@@ -1,0 +1,20 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: MediaFlow Webhook
+    receivers:
+      - uid: mediaflow-webhook
+        type: webhook
+        settings:
+          url: ${WEBHOOK_URL}
+          httpMethod: POST
+          maxAlerts: 10
+
+  - orgId: 1
+    name: MediaFlow Email
+    receivers:
+      - uid: mediaflow-email
+        type: email
+        settings:
+          addresses: ${GRAFANA_ALERT_EMAIL}
+          singleEmail: false

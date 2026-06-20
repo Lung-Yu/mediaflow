@@ -1,0 +1,11 @@
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: MediaFlow Webhook
+    routes:
+      - receiver: MediaFlow Webhook
+        matchers:
+          - severity =~ "critical|warning"
+      - receiver: MediaFlow Email
+        matchers:
+          - severity = critical
