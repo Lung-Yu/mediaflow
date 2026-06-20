@@ -22,6 +22,7 @@ _ALLOWED_JOB_COLUMNS = frozenset({
     "submitted_at", "started_at", "completed_at", "retry_count", "error_msg",
     "output_srt_path", "corrected_srt_path", "verification_status",
     "verified_at", "verified_by", "minio_input_key", "minio_processing_key",
+    "initial_prompt",
 })
 
 

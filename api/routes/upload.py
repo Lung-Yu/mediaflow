@@ -32,6 +32,7 @@ class CompleteRequest(BaseModel):
     upload_id: str
     minio_key: str
     parts: List[PartInfo]
+    initial_prompt: str = ""
 
 
 def _stem_from_filename(filename: str) -> str:
@@ -84,6 +85,7 @@ async def upload_complete(req: CompleteRequest):
         status="pending",
         minio_input_key=req.minio_key,
         submitted_at=time.time(),
+        initial_prompt=req.initial_prompt,
     )
     return {"stem": stem, "status": "pending"}
 

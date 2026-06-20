@@ -5,6 +5,7 @@ Every 5 s, checks if a pipeline slot is free and downloads the
 oldest pending task from MinIO to workspace/1_input/ for the watcher.
 """
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -36,6 +37,11 @@ async def _tick() -> None:
     try:
         client = minio_mod.get_client()
         loop = asyncio.get_event_loop()
+        # Write sidecar meta before audio so watcher always sees it on file-created event
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        meta = {"initial_prompt": task.get("initial_prompt", "")}
+        meta_path = dest.parent / f"{dest.stem}_meta.json"
+        meta_path.write_text(json.dumps(meta))
         await loop.run_in_executor(None, client.download_to_file, minio_key, dest)
         await db.upsert_task(stem, status="queued")
         log.info("Queue: %s ready in workspace, watcher will pick up", stem)

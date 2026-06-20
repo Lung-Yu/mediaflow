@@ -4,6 +4,7 @@ On startup: scans 1_input/ to recover from restart without move-out/back workaro
 On new file: strips quarantine attrs, then runs pipeline stages via runner.execute().
 On error: renames file to .failed so it is skipped on next restart.
 """
+import json
 import logging
 import os
 import shutil
@@ -54,6 +55,14 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         "mediaflow.jobs.submitted", unit="jobs"
     ).add(1, {"recording_type": recording_type})
 
+    meta_path = path.parent / f"{stem}_meta.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            pass
+
     ctx = {
         "stem": stem,
         "input_path": path,
@@ -61,6 +70,7 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         "output_dir": ws / "3_output",
         "audio_path": ws / "2_processing" / f"{stem}_clean.wav",
         "srt_path": ws / "3_output" / f"{stem}.srt",
+        "initial_prompt": meta.get("initial_prompt", ""),
     }
 
     try:
@@ -82,6 +92,9 @@ def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
         if chunk_dir.exists():
             shutil.rmtree(chunk_dir, ignore_errors=True)
             log.info("Cleaned up chunk dir: %s", chunk_dir.name)
+
+        if meta_path.exists():
+            meta_path.unlink(missing_ok=True)
 
         if parse_retention(lc.get("archive", "forever")) == timedelta(0):
             safe_unlink(ws / "4_archive" / path.name, "archive")
