@@ -43,8 +43,8 @@ flowchart TD
         RUN --> PRE[preprocess\nFFmpeg filter chain]
         PRE --> SEG[segment_audio ◇\nFFmpeg silencedetect]
         SEG --> TR[transcribe\nWhisper :9001]
-        TR -->|segments.json| VER[verify_segments ◇\nWhisper-large :9001]
-        VER --> COR[correct_srt ◇\nOllama :11434]
+        TR -->|segments.json| VER[verify_segments\nWhisper-large :9001]
+        VER --> COR[correct_srt\nOllama :11434]
         TR --> COR
         COR --> DIAR[diarize ◇\nspeechbrain :9003]
         TR --> DIAR
@@ -63,7 +63,7 @@ flowchart TD
     CON --> DB[(PostgreSQL\npipeline.db)]
     DB -->|HTMX poll| DASH[web :3000\ndashboard + SRT browser]
 ```
-*◇ = disabled by default; enable in config.yaml*
+*◇ = disabled by default; enable in config.yaml (`segment_audio`, `diarize`, `detect_chapters`)*
 
 ---
 
@@ -90,7 +90,7 @@ Files that fail are renamed to `{original}.failed` in-place so the watcher skips
 
 ```
 pipeline/
-  watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor
+  watcher.py          — watchdog loop + startup recovery scan + ThreadPoolExecutor; reads {stem}_meta.json for per-request initial_prompt
   runner.py           — shared stage executor (ctx dict protocol, STAGE_RUNNERS registry)
   stages.py           — all stage functions: preprocess / segment_audio / transcribe /
                         verify_segments / correct_srt / diarize / summarize / detect_chapters
@@ -109,7 +109,7 @@ api/
   db/                 — PostgreSQL via asyncpg: __init__.py, queries.py, migrations/
   mq/
     events_consumer.py — XREADGROUP loop: mediaflow:events → process_event() → xack
-    jobs_consumer.py   — XREADGROUP loop: mediaflow:jobs → download from MinIO → queue
+    jobs_consumer.py   — XREADGROUP loop: mediaflow:jobs → writes {stem}_meta.json sidecar → download from MinIO → queue
   services/
     event_processor.py — shared process_event() (HTTP route + Redis consumer both call this)
     reconcile.py       — on startup, scan 3_output/*.srt and fill DB gaps
@@ -177,9 +177,9 @@ pipeline:
     - id: transcribe
       enabled: true
     - id: verify_segments
-      enabled: false            # re-transcribe low-confidence segments with whisper-large-v3
+      enabled: true             # re-transcribe low-confidence segments with whisper-large-v3
     - id: correct_srt
-      enabled: false            # Ollama homophone correction pass
+      enabled: true             # Ollama homophone correction pass (~30s)
     - id: diarize
       enabled: false            # speaker diarization via speechbrain :9003
     - id: summarize
@@ -203,7 +203,9 @@ preprocessing:
 whisper:
   service_url: http://localhost:9001
   language: zh
-  initial_prompt: ""            # warm-up vocabulary for domain terms
+  beam_size: 5                  # decoding beam width; higher = more accurate, slower
+  condition_on_previous_text: true  # feed prior segment as context; false reduces hallucination loops
+  initial_prompt: ""            # global warm-up vocabulary; overridden per-request via upload API
 
 ollama:
   service_url: http://localhost:11434
@@ -246,7 +248,12 @@ minio:
 httpx.post(
     "http://localhost:9001/transcribe_segments",
     files={"audio": (audio_path.name, file_handle)},
-    params={"language": "zh"},
+    params={
+        "language": "zh",
+        "beam_size": 5,                      # from whisper.beam_size in config.yaml
+        "condition_on_previous_text": True,  # from whisper.condition_on_previous_text
+        "initial_prompt": "",                # from ctx["initial_prompt"] (per-request override)
+    },
     timeout=1800.0,
 )
 # Response: {"segments": [{"id", "start", "end", "text", "avg_logprob", "no_speech_prob"}]}
@@ -254,6 +261,11 @@ httpx.post(
 
 Model: `mlx-community/whisper-medium-mlx` (set via `WHISPER_MODEL` env in `ctl.sh`).
 Also available: `/transcribe_large` (whisper-large-v3) used by `verify_segments`.
+
+**Per-request `initial_prompt`**: callers POST to `/upload/complete` with `{"initial_prompt": "..."}`.
+The API persists it to the `jobs.initial_prompt` column; `jobs_consumer` writes it to a sidecar
+`{stem}_meta.json` file in `1_input/` before dropping the audio; `watcher.py` reads the sidecar
+into `ctx["initial_prompt"]` before the pipeline runs. The sidecar is deleted on pipeline success.
 
 ### Ollama (`pipeline/stages.py: summarize()`)
 
@@ -319,29 +331,51 @@ Stream key: `mediaflow:events` / Consumer group: `api-consumers`
 Migrations in `api/db/migrations/`. Applied automatically on API startup.
 
 ```sql
-CREATE TABLE tasks (
-    stem            TEXT PRIMARY KEY,
-    filename        TEXT,
-    status          TEXT NOT NULL DEFAULT 'submitted',
-    current_stage   TEXT,
-    submitted_at    REAL,
-    started_at      REAL,
-    completed_at    REAL,
-    duration_sec    REAL,
-    error_msg       TEXT,
-    output_srt_path TEXT
+CREATE TABLE dag_flows (
+    id          TEXT    PRIMARY KEY,
+    stage_plan  JSONB   NOT NULL,
+    is_default  BOOLEAN DEFAULT false,
+    deprecated  BOOLEAN DEFAULT false,
+    created_at  REAL    NOT NULL
+);
+
+CREATE TABLE jobs (
+    id                   TEXT    PRIMARY KEY,
+    filename             TEXT    NOT NULL,
+    submitted_by         TEXT    NOT NULL DEFAULT 'anonymous',
+    dag_flow_id          TEXT    REFERENCES dag_flows(id),
+    status               TEXT    NOT NULL DEFAULT 'submitted'
+                         CHECK(status IN ('submitted','queued','processing','completed','failed')),
+    current_stage        TEXT,
+    submitted_at         REAL,
+    started_at           REAL,
+    completed_at         REAL,
+    retry_count          INTEGER NOT NULL DEFAULT 0,
+    error_msg            TEXT,
+    output_srt_path      TEXT,
+    corrected_srt_path   TEXT,
+    verification_status  TEXT    NOT NULL DEFAULT 'unverified'
+                         CHECK(verification_status IN ('unverified','in_progress','verified')),
+    verified_at          REAL,
+    verified_by          TEXT,
+    minio_input_key      TEXT,
+    minio_processing_key TEXT,
+    initial_prompt       TEXT    NOT NULL DEFAULT ''   -- per-request Whisper warm-up vocab
 );
 
 CREATE TABLE events (
-    id      SERIAL PRIMARY KEY,
-    stem    TEXT NOT NULL,
-    event   TEXT NOT NULL,
-    stage   TEXT,
-    status  TEXT,
-    ts      REAL,
-    payload TEXT
+    id             SERIAL  PRIMARY KEY,
+    job_id         TEXT    NOT NULL REFERENCES jobs(id),
+    stage          TEXT    NOT NULL,
+    status         TEXT    CHECK(status IN ('started','success','failed')),
+    retry_attempt  INTEGER NOT NULL DEFAULT 0,
+    error_msg      TEXT,
+    payload        TEXT,
+    ts             REAL    NOT NULL
 );
 ```
+
+Seeded DAG flows: `general-v1` (default), `course-v1` (diarize + verify + chapters), `meeting-v1` (diarize + summarize).
 
 ---
 
@@ -470,10 +504,15 @@ redis-cli XREAD COUNT 10 STREAMS mediaflow:events 0
 | **segment_audio stage** — silence-boundary chunking before Whisper | `pipeline/stages.py`, `pipeline/runner.py` |
 | **RNNoise denoising** — optional arnndn via FFmpeg (far-field / noisy audio) | `pipeline/stages.py`, `scripts/download-models.sh` |
 | **Configurable silenceremove threshold** — tune for far-field recordings | `pipeline/stages.py`, `config.yaml.example` |
+| **beam_size + condition_on_previous_text** — Whisper decoding params in config | `whisper/service.py`, `pipeline/stages.py`, `config.yaml.example` |
+| **Per-request initial_prompt** — upload API → DB → sidecar JSON → watcher ctx | `api/routes/upload.py`, `api/mq/jobs_consumer.py`, `pipeline/watcher.py` |
+| **verify_segments + correct_srt enabled by default** — accuracy improvement | `pipeline/runner.py`, `config.yaml.example` |
 
 ### ❌ Not Yet Implemented
 
-Nothing remaining — all planned phases complete.
+| Item | Notes |
+|------|-------|
+| whisper-large-v3-turbo model upgrade | Deferred — OOM risk on Apple Silicon; test carefully |
 
 ---
 
@@ -492,7 +531,7 @@ Nothing remaining — all planned phases complete.
 
 ## Version Control (Trunk-Based Development)
 
-Single `main` branch, always deployable. Current release: `v0.2.0`.
+Single `main` branch, always deployable. Current release: `v0.2.2`.
 
 | Rule | Detail |
 |------|--------|
