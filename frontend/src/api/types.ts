@@ -34,27 +34,7 @@ export interface Segment {
 }
 
 export interface SpeakerData {
-  speakers: string[]
-  counts: Record<string, number>
-  names: Record<string, string>
   has_audio: boolean
-}
-
-export interface TimelineStage {
-  stage: string
-  completed_at: number | null
-  duration_sec: number | null
-}
-
-export interface TaskTimeline {
-  stem: string
-  filename: string | null
-  submitted_at: number | null
-  started_at: number | null
-  completed_at: number | null
-  total_pipeline_sec: number
-  total_wall_sec: number | null
-  stages: TimelineStage[]
 }
 
 export interface StatsOverview {

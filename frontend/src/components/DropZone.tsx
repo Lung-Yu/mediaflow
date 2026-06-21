@@ -8,10 +8,9 @@ function ext(name: string) {
 
 interface Props {
   onFiles: (files: File[]) => void
-  compact?: boolean
 }
 
-export function DropZone({ onFiles, compact = false }: Props) {
+export function DropZone({ onFiles }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
@@ -23,31 +22,15 @@ export function DropZone({ onFiles, compact = false }: Props) {
 
   return (
     <div
-      className={`border-2 border-dashed rounded-lg text-center transition-colors cursor-pointer ${
-        compact ? 'px-3 py-2.5' : 'p-12'
-      } ${dragging ? 'border-purple-500 bg-purple-950/20' : 'border-neutral-700 hover:border-neutral-500'}`}
+      className={`border-2 border-dashed rounded-lg text-center transition-colors cursor-pointer px-3 py-2.5 ${
+        dragging ? 'border-purple-500 bg-purple-950/20' : 'border-neutral-700 hover:border-neutral-500'
+      }`}
       onClick={() => inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files) }}
     >
-      {compact ? (
-        <p className="text-xs text-neutral-500">拖曳或點擊選擇音訊／視訊</p>
-      ) : (
-        <>
-          <div className="text-4xl mb-3 text-neutral-500">⬆</div>
-          <p className="text-neutral-400 mb-2">拖曳檔案到這裡，或</p>
-          <button
-            type="button"
-            className="px-4 py-1.5 bg-purple-700 text-white text-sm rounded hover:bg-purple-600"
-          >
-            選擇檔案
-          </button>
-          <p className="text-xs text-neutral-600 mt-3">
-            支援 .mp4 .m4a .mp3 .wav .flac｜單檔上限 5 GB
-          </p>
-        </>
-      )}
+      <p className="text-xs text-neutral-500">拖曳或點擊選擇音訊／視訊</p>
       <input
         ref={inputRef}
         type="file"

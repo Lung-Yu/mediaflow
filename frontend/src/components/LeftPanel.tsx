@@ -101,7 +101,7 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
 
       {/* Upload */}
       <div className="flex-shrink-0 p-3 border-b border-neutral-800">
-        <DropZone onFiles={handleFiles} compact />
+        <DropZone onFiles={handleFiles} />
         {uploads.map(u => (
           <div key={u.key} className="mt-2">
             <div className="flex items-center gap-2 text-xs">
