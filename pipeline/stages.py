@@ -10,9 +10,12 @@ Each function returns the primary output path and raises on failure.
 """
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
+
+_CPU_THREADS = os.getenv("WORKER_CPU_THREADS", "2")
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,7 +113,8 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
 
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(source), "-af", ",".join(filters),
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(source), "-af", ",".join(filters),
              "-ar", "16000", "-ac", "1", "-vn", str(out)],
             check=True, capture_output=True, timeout=600,
         )
@@ -141,7 +145,7 @@ def _detect_silences(audio_path: Path, noise_db: float, min_duration: float) -> 
     """Return list of (silence_start, silence_end) in seconds using ffmpeg silencedetect."""
     af = f"silencedetect=noise={noise_db}dB:d={min_duration}"
     result = subprocess.run(
-        ["ffmpeg", "-i", str(audio_path), "-af", af, "-f", "null", "-"],
+        ["ffmpeg", "-threads", _CPU_THREADS, "-i", str(audio_path), "-af", af, "-f", "null", "-"],
         capture_output=True, text=True,
     )
     output = result.stderr
@@ -198,7 +202,8 @@ def segment_audio(audio_path: Path, stem: str, cfg: dict) -> Optional[list]:
     for i, (start, end) in enumerate(ranges):
         chunk_path = chunk_dir / f"chunk_{i:03d}.wav"
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(audio_path),
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(audio_path),
              "-ss", str(start), "-to", str(end),
              "-c", "copy", str(chunk_path)],
             check=True, capture_output=True,
@@ -365,7 +370,8 @@ def verify_segments(stem: str, srt_path: Path, audio_path: Path, cfg: dict) -> P
         seg = segments[idx]
         try:
             subprocess.run(
-                ["ffmpeg", "-y", "-i", str(audio_path),
+                ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+                 "-i", str(audio_path),
                  "-ss", str(seg["start"]), "-to", str(seg["end"]),
                  "-ar", "16000", "-ac", "1", str(clip_path)],
                 check=True, capture_output=True, timeout=30,

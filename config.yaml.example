@@ -7,6 +7,9 @@ pipeline:
   max_queue_depth: 20              # reject POST /jobs if pending jobs >= this
   max_retries: 3                   # per-job retry limit before final failure
   retry_backoff_sec: 30            # seconds to wait before retry re-enqueue
+  # Resource limits (override via env vars):
+  #   WORKER_CPU_THREADS=2   — FFmpeg + Demucs/PyTorch OpenMP thread cap (default: 2)
+  #   WORKER_NICE=10         — worker OS scheduling priority 0–19 (default: 10, higher = nicer)
   supported_formats:
     - .mp4
     - .m4a

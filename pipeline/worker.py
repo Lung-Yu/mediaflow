@@ -219,6 +219,13 @@ def run():
     from api.utils.minio import init_client
     init_client()
 
+    _nice = int(os.getenv("WORKER_NICE", "10"))
+    if _nice:
+        os.nice(_nice)
+    _cpu_threads = os.getenv("WORKER_CPU_THREADS", "2")
+    os.environ.setdefault("OMP_NUM_THREADS", _cpu_threads)   # Demucs/PyTorch
+    os.environ.setdefault("MKL_NUM_THREADS", _cpu_threads)   # numpy/MKL
+
     cfg = load_config()
     max_workers = cfg.get("pipeline", {}).get("max_concurrent_jobs", 2)
     redis_host = os.getenv("REDIS_HOST", "localhost")
