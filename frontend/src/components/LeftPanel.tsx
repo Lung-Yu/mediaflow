@@ -40,6 +40,15 @@ async function uploadFile(
 
 const EMPTY: StatusOverview = { processing: [], queue: [], recent: [], failed: [] }
 const PIPELINE_STAGES = ['preprocess', 'transcribe', 'verify_segments', 'correct_srt', 'summarize']
+const STAGE_ZH: Record<string, string> = {
+  preprocess:      '預處理',
+  transcribe:      '轉錄中',
+  verify_segments: '驗證中',
+  correct_srt:     '校正中',
+  summarize:       '摘要中',
+  diarize:         '辨識說話者',
+  detect_chapters: '分章節',
+}
 
 function StagePips({ current }: { current: string | null }) {
   const curIdx = current ? PIPELINE_STAGES.indexOf(current) : -1
@@ -121,21 +130,29 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
 
       {/* Processing / Queue */}
       {(data.processing.length > 0 || data.queue.length > 0) && (
-        <div className="flex-shrink-0 border-b border-neutral-800 px-3 py-2.5 space-y-1.5">
+        <div className="flex-shrink-0 border-b border-neutral-800 px-3 py-2.5 space-y-2">
           {data.processing.map(t => (
-            <div key={t.stem} className="flex items-center gap-2 text-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
-              <span className="flex-1 truncate text-neutral-300">{t.filename || t.stem}</span>
-              <StagePips current={t.current_stage} />
+            <div key={t.stem} className="text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
+                <span className="flex-1 truncate text-neutral-300">{t.filename || t.stem}</span>
+                <span className="text-blue-400 flex-shrink-0">
+                  {t.current_stage ? (STAGE_ZH[t.current_stage] ?? t.current_stage) : '處理中…'}
+                </span>
+              </div>
+              <div className="ml-3.5 mt-1">
+                <StagePips current={t.current_stage} />
+              </div>
             </div>
           ))}
           {data.queue.map(t => (
             <div key={t.stem} className="flex items-center gap-2 text-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0" />
               <span className="flex-1 truncate text-neutral-500">{t.filename || t.stem}</span>
+              <span className="text-neutral-600 flex-shrink-0">等待中</span>
               <button
                 onClick={() => { if (confirm(`取消 ${t.stem}？`)) cancel.mutate(t.stem) }}
-                className="text-red-500 hover:text-red-300 text-xs leading-none"
+                className="text-red-500 hover:text-red-300 text-xs leading-none flex-shrink-0"
                 title="取消"
               >
                 ✕
