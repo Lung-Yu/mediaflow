@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useSSE } from '@/hooks/useSSE'
+import { LeftPanel } from '@/components/LeftPanel'
 
 export function Home() {
   useSSE()
@@ -19,12 +20,9 @@ export function Home() {
 
   return (
     <div className="flex w-full overflow-hidden">
-      <div className="w-80 flex-shrink-0 border-r border-neutral-800 p-4 text-xs text-neutral-600">
-        left panel (coming soon) — selected: {stem ?? 'none'}
-      </div>
-      <div className="flex-1 p-4 text-xs text-neutral-600">
+      <LeftPanel selectedStem={stem} onSelect={selectStem} />
+      <div className="flex-1 flex items-center justify-center text-xs text-neutral-600">
         right panel (coming soon)
-        <button className="ml-4 text-purple-400" onClick={() => selectStem('test')}>test select</button>
       </div>
     </div>
   )
