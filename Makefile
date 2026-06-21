@@ -1,8 +1,8 @@
 .PHONY: help start stop restart status \
-        start-docker start-whisper start-watcher start-diarize \
-        stop-docker stop-whisper stop-watcher stop-diarize \
-        restart-all restart-docker restart-whisper restart-watcher restart-api restart-web \
-        logs logs-api logs-web logs-redis logs-watcher logs-whisper logs-diarize \
+        start-docker start-whisper start-watcher start-worker start-diarize \
+        stop-docker stop-whisper stop-watcher stop-worker stop-diarize \
+        restart-all restart-docker restart-whisper restart-watcher restart-worker restart-api restart-web \
+        logs logs-api logs-web logs-redis logs-watcher logs-whisper logs-worker logs-diarize \
         rebuild rebuild-api rebuild-web
 
 CTL := scripts/ctl.sh
@@ -23,20 +23,22 @@ help:
 	@echo "    make start-docker     Redis + API + Web (Docker)"
 	@echo "    make start-whisper    Whisper transcription service :9001"
 	@echo "    make start-watcher    Pipeline watcher (watches 1_input/)"
+	@echo "    make start-worker     Pipeline worker (processes jobs from MQ)"
 	@echo "    make start-diarize    Speaker diarization service :9003 (optional)"
 	@echo ""
-	@echo "    make stop-docker / stop-whisper / stop-watcher / stop-diarize"
+	@echo "    make stop-docker / stop-whisper / stop-watcher / stop-worker / stop-diarize"
 	@echo ""
 	@echo "  Restart individual"
 	@echo "    make restart-api      Restart API container"
 	@echo "    make restart-web      Restart Web container"
 	@echo "    make restart-whisper  Restart Whisper service"
 	@echo "    make restart-watcher  Restart pipeline watcher"
+	@echo "    make restart-worker   Restart pipeline worker"
 	@echo ""
 	@echo "  Logs"
 	@echo "    make logs             API logs (default)"
 	@echo "    make logs-api / logs-web / logs-redis"
-	@echo "    make logs-watcher / logs-whisper / logs-diarize"
+	@echo "    make logs-watcher / logs-whisper / logs-worker / logs-diarize"
 	@echo ""
 	@echo "  Build"
 	@echo "    make rebuild          Rebuild Docker images + restart"
@@ -72,6 +74,9 @@ start-whisper:
 start-watcher:
 	$(CTL) start watcher
 
+start-worker:
+	$(CTL) start worker
+
 start-diarize:
 	$(CTL) start diarize
 
@@ -85,6 +90,9 @@ stop-whisper:
 
 stop-watcher:
 	$(CTL) stop watcher
+
+stop-worker:
+	$(CTL) stop worker
 
 stop-diarize:
 	$(CTL) stop diarize
@@ -109,6 +117,9 @@ restart-whisper:
 restart-watcher:
 	$(CTL) restart watcher
 
+restart-worker:
+	$(CTL) restart worker
+
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
 logs:
@@ -128,6 +139,9 @@ logs-watcher:
 
 logs-whisper:
 	$(CTL) logs whisper
+
+logs-worker:
+	$(CTL) logs worker
 
 logs-diarize:
 	$(CTL) logs diarize
