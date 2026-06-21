@@ -50,6 +50,7 @@ export const api = {
   rerunTask:        (stem: string, from_stage: string | null) =>
                       json<{ stem: string; status: string }>('POST', `/tasks/${stem}/runs`, { from_stage }),
   cancelTask:       (stem: string) => del(`/tasks/${stem}`),
+  deleteFile:       (stem: string) => del(`/files/${stem}`),
   audioUrl:         (stem: string) => `${BASE}/files/${stem}/audio`,
   sseUrl:           () => `${BASE}/events/stream`,
 }

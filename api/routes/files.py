@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from api.utils import srt as srtlib
+from api import db
 
 router = APIRouter(prefix="/files")
 
@@ -52,6 +53,22 @@ def list_srts():
         }
         for p in files
     ]
+
+
+# ── Delete ───────────────────────────────────────────────────
+@router.delete("/{stem}")
+async def delete_file(stem: str):
+    if not re.match(r'^[A-Za-z0-9_\-一-鿿　-〿]+$', stem):
+        raise HTTPException(status_code=400, detail="Invalid stem")
+    deleted = []
+    for suffix in [".srt", "_summary.md", "_summary.json", "_diarization.json",
+                   "_chapters.json", "_speaker_names.json"]:
+        p = OUTPUT_DIR / f"{stem}{suffix}"
+        if p.exists():
+            p.unlink()
+            deleted.append(p.name)
+    await db.delete_task(stem)
+    return {"deleted": deleted}
 
 
 # ── Raw SRT text ──────────────────────────────────────────────

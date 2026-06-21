@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import type { SrtFile } from '@/api/types'
@@ -21,6 +21,13 @@ export function TranscriptList({ selectedStem, onSelect }: Props) {
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(PAGE_SIZE)
   const debouncedQ = useDebounce(q, 300)
+  const qc = useQueryClient()
+  const [confirming, setConfirming] = useState<string | null>(null)
+
+  const del = useMutation({
+    mutationFn: (stem: string) => api.deleteFile(stem),
+    onSuccess: () => { setConfirming(null); qc.invalidateQueries({ queryKey: ['files'] }) },
+  })
 
   const { data: allFiles = [], isLoading } = useQuery({
     queryKey: ['files'],
@@ -50,20 +57,38 @@ export function TranscriptList({ selectedStem, onSelect }: Props) {
           <p className="px-3 py-3 text-xs text-neutral-600">無符合結果</p>
         )}
         {visible.map(f => (
-          <button
+          <div
             key={f.stem}
-            onClick={() => onSelect(f.stem)}
-            className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-neutral-900 transition-colors border-l-2 ${
+            className={`group flex items-center gap-2 px-3 py-2.5 border-l-2 hover:bg-neutral-900 transition-colors ${
               f.stem === selectedStem
-                ? 'border-purple-500 bg-purple-950/20 text-neutral-100'
-                : 'border-transparent text-neutral-400'
+                ? 'border-purple-500 bg-purple-950/20'
+                : 'border-transparent'
             }`}
           >
-            <span className="flex-1 truncate text-xs">{f.stem}</span>
-            <span className="text-neutral-700 tabular-nums text-xs flex-shrink-0">
-              {new Date(f.mtime * 1000).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })}
-            </span>
-          </button>
+            <button
+              onClick={() => onSelect(f.stem)}
+              className="flex-1 flex items-center gap-2 text-left min-w-0"
+            >
+              <span className={`flex-1 truncate text-xs ${f.stem === selectedStem ? 'text-neutral-100' : 'text-neutral-400'}`}>{f.stem}</span>
+              <span className="text-neutral-700 tabular-nums text-xs flex-shrink-0">
+                {new Date(f.mtime * 1000).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })}
+              </span>
+            </button>
+            {confirming === f.stem ? (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <span className="text-neutral-500 text-xs">刪除？</span>
+                <button onClick={() => del.mutate(f.stem)} className="text-red-400 hover:text-red-300 text-xs px-1">✓</button>
+                <button onClick={() => setConfirming(null)} className="text-neutral-600 hover:text-neutral-400 text-xs px-1">✕</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirming(f.stem)}
+                className="opacity-0 group-hover:opacity-100 text-neutral-600 hover:text-red-400 text-xs leading-none flex-shrink-0 transition-opacity"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         ))}
         {remaining > 0 && (
           <button

@@ -128,7 +128,9 @@ async def count_active_tasks() -> int:
 
 
 async def delete_task(stem: str) -> None:
-    await _get_pool().execute("DELETE FROM jobs WHERE id = $1", stem)
+    pool = _get_pool()
+    await pool.execute("DELETE FROM events WHERE job_id = $1", stem)
+    await pool.execute("DELETE FROM jobs WHERE id = $1", stem)
 
 
 async def get_upload_queue() -> list:

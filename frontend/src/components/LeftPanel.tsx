@@ -72,12 +72,13 @@ export interface LeftPanelProps {
 
 export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
   const [uploads, setUploads] = useState<UploadItem[]>([])
+  const [cancelConfirm, setCancelConfirm] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data = EMPTY } = useQuery({
     queryKey: ['status'],
     queryFn: api.getStatus,
-    refetchInterval: 30_000,
+    refetchInterval: 3_000,
   })
 
   const cancel = useMutation({
@@ -149,14 +150,23 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
             <div key={t.stem} className="flex items-center gap-2 text-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0" />
               <span className="flex-1 truncate text-neutral-500">{t.filename || t.stem}</span>
-              <span className="text-neutral-600 flex-shrink-0">等待中</span>
-              <button
-                onClick={() => { if (confirm(`取消 ${t.stem}？`)) cancel.mutate(t.stem) }}
-                className="text-red-500 hover:text-red-300 text-xs leading-none flex-shrink-0"
-                title="取消"
-              >
-                ✕
-              </button>
+              {cancelConfirm === t.stem ? (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <span className="text-neutral-500 text-xs">取消？</span>
+                  <button onClick={() => { cancel.mutate(t.stem); setCancelConfirm(null) }} className="text-red-400 hover:text-red-300 text-xs px-1">✓</button>
+                  <button onClick={() => setCancelConfirm(null)} className="text-neutral-600 hover:text-neutral-400 text-xs px-1">✕</button>
+                </div>
+              ) : (
+                <>
+                  <span className="text-neutral-600 flex-shrink-0">等待中</span>
+                  <button
+                    onClick={() => setCancelConfirm(t.stem)}
+                    className="text-red-500 hover:text-red-300 text-xs leading-none flex-shrink-0"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -173,15 +183,20 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
         <div className="flex-shrink-0 border-t border-neutral-800 px-3 py-2.5 space-y-1.5">
           <div className="text-xs text-neutral-600 uppercase tracking-wider mb-1">Failed</div>
           {data.failed.map(t => (
-            <div key={t.stem} className="flex items-center gap-2 text-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-              <span className="flex-1 truncate text-neutral-400" title={t.error_msg ?? ''}>{t.filename || t.stem}</span>
-              <button
-                onClick={() => rerun.mutate(t.stem)}
-                className="text-yellow-500 hover:text-yellow-300 text-xs"
-              >
-                重跑
-              </button>
+            <div key={t.stem} className="text-xs space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                <span className="flex-1 truncate text-neutral-400">{t.filename || t.stem}</span>
+                <button
+                  onClick={() => rerun.mutate(t.stem)}
+                  className="text-yellow-500 hover:text-yellow-300 flex-shrink-0"
+                >
+                  重跑
+                </button>
+              </div>
+              {t.error_msg && (
+                <p className="ml-3.5 text-red-400/70 break-all leading-tight">{t.error_msg}</p>
+              )}
             </div>
           ))}
         </div>

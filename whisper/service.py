@@ -44,11 +44,9 @@ def _do_transcribe(
 
     try:
         kwargs: dict = {"path_or_hf_repo": MODEL}
-        # turbo models raise NotImplementedError for beam search in mlx-whisper 0.4.x;
-        # skip decoding params and let mlx-whisper use its own greedy defaults
-        if "turbo" not in MODEL.lower():
-            kwargs["beam_size"] = beam_size
-            kwargs["condition_on_previous_text"] = condition_on_previous_text
+        # mlx-whisper raises NotImplementedError for beam_size > 1; skip it entirely
+        # and rely on the library's greedy default
+        kwargs["condition_on_previous_text"] = condition_on_previous_text
         if language:
             kwargs["language"] = language
         if initial_prompt:
