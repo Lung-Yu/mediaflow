@@ -5,7 +5,7 @@ import re
 import time
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from api import db
@@ -69,9 +69,8 @@ async def upload_init(req: InitRequest):
 
 
 @router.post("/complete")
-async def upload_complete(req: CompleteRequest):
-    """Finalise multipart upload and enqueue task for pipeline processing."""
-    stem = req.minio_key.split("/")[0]
+async def upload_complete(req: CompleteRequest, request: Request):
+    """Finalise multipart upload and hand off to Project Service."""
     filename = req.minio_key.split("/", 1)[1]
     client = minio_mod.get_client()
     client.complete_multipart_upload(
@@ -79,15 +78,17 @@ async def upload_complete(req: CompleteRequest):
         req.upload_id,
         [{"part_number": p.part_number, "etag": p.etag} for p in req.parts],
     )
-    await db.upsert_task(
-        stem,
+    from api.services.project import on_upload_trigger
+    job_id = await on_upload_trigger(
+        request.app.state.pool,
+        request.app.state.redis,
+        client,
+        file_key=req.minio_key,
         filename=filename,
-        status="pending",
-        minio_input_key=req.minio_key,
-        submitted_at=time.time(),
-        initial_prompt=req.initial_prompt,
+        dag_flow_id=None,
+        submitted_by="anonymous",
     )
-    return {"stem": stem, "status": "pending"}
+    return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/queue")

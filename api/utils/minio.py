@@ -1,4 +1,5 @@
 """boto3 wrapper for MinIO operations used by the upload flow."""
+from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Optional
