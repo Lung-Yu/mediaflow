@@ -91,7 +91,9 @@ async def handle_stage_callback(
     job = await get_job(pool, job_id)
     flow = await get_dag_flow(pool, job["dag_flow_id"])
     stage_ids = [s["stage"] for s in flow["stage_plan"]]
-    await upsert_job(pool, job_id, current_stage=stage, status="processing")
+    # reset started_at so watchdog timeout counts from last successful stage, not job start
+    await upsert_job(pool, job_id, current_stage=stage, status="processing",
+                     started_at=time.time())
     if stage == stage_ids[-1]:
         await upsert_job(pool, job_id, status="completed", completed_at=time.time())
         log.info("Job %s completed", job_id)
@@ -117,7 +119,9 @@ async def recover_stuck_jobs(pool: asyncpg.Pool, redis) -> None:
                     job["id"], job["status"], retry_count)
         if retry_count < _MAX_RETRIES:
             flow = await get_dag_flow(pool, job.get("dag_flow_id"))
-            resume = job.get("current_stage") or flow["stage_plan"][0]["stage"]
+            # Always resume from first stage: worker ctx only has input_path, not
+            # intermediate outputs (audio_path, srt_path) that mid-pipeline stages need.
+            resume = flow["stage_plan"][0]["stage"]
             await insert_event(pool, job["id"], resume, "failed",
                                retry_attempt=retry_count,
                                error_msg="watchdog: job timeout, worker did not respond")
