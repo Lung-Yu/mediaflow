@@ -25,30 +25,9 @@ export function TranscriptList({ selectedStem, onSelect }: Props) {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkConfirm, setBulkConfirm] = useState(false)
+  const [lastChecked, setLastChecked] = useState<string | null>(null)
 
   const inSelectMode = selected.size > 0
-
-  const toggle = (stem: string) => {
-    setConfirming(null)
-    setSelected(prev => {
-      const next = new Set(prev)
-      next.has(stem) ? next.delete(stem) : next.add(stem)
-      return next
-    })
-    setBulkConfirm(false)
-  }
-
-  const clearSelection = () => { setSelected(new Set()); setBulkConfirm(false) }
-
-  const del = useMutation({
-    mutationFn: (stem: string) => api.deleteFile(stem),
-    onSuccess: () => { setConfirming(null); qc.invalidateQueries({ queryKey: ['files'] }) },
-  })
-
-  const bulkDel = useMutation({
-    mutationFn: () => Promise.all([...selected].map(s => api.deleteFile(s))),
-    onSuccess: () => { clearSelection(); qc.invalidateQueries({ queryKey: ['files'] }) },
-  })
 
   const { data: allFiles = [], isLoading } = useQuery({
     queryKey: ['files'],
@@ -59,6 +38,47 @@ export function TranscriptList({ selectedStem, onSelect }: Props) {
   const filtered = useMemo(() => filterFiles(allFiles, debouncedQ), [allFiles, debouncedQ])
   const visible = filtered.slice(0, limit)
   const remaining = filtered.length - limit
+
+  const handleCheck = (stem: string, shiftKey: boolean) => {
+    const willCheck = !selected.has(stem)
+    setConfirming(null)
+    setBulkConfirm(false)
+
+    if (shiftKey && lastChecked !== null) {
+      const stems = visible.map(f => f.stem)
+      const a = stems.indexOf(lastChecked)
+      const b = stems.indexOf(stem)
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a <= b ? [a, b] : [b, a]
+        setSelected(prev => {
+          const next = new Set(prev)
+          stems.slice(lo, hi + 1).forEach(s => willCheck ? next.add(s) : next.delete(s))
+          return next
+        })
+        setLastChecked(stem)
+        return
+      }
+    }
+
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(stem) ? next.delete(stem) : next.add(stem)
+      return next
+    })
+    setLastChecked(stem)
+  }
+
+  const clearSelection = () => { setSelected(new Set()); setBulkConfirm(false); setLastChecked(null) }
+
+  const del = useMutation({
+    mutationFn: (stem: string) => api.deleteFile(stem),
+    onSuccess: () => { setConfirming(null); qc.invalidateQueries({ queryKey: ['files'] }) },
+  })
+
+  const bulkDel = useMutation({
+    mutationFn: () => Promise.all([...selected].map(s => api.deleteFile(s))),
+    onSuccess: () => { clearSelection(); qc.invalidateQueries({ queryKey: ['files'] }) },
+  })
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -118,14 +138,14 @@ export function TranscriptList({ selectedStem, onSelect }: Props) {
             <input
               type="checkbox"
               checked={selected.has(f.stem)}
-              onChange={() => toggle(f.stem)}
+              onChange={e => handleCheck(f.stem, (e.nativeEvent as MouseEvent).shiftKey)}
               className={`flex-shrink-0 w-3 h-3 accent-purple-500 cursor-pointer transition-opacity ${
                 inSelectMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
             />
 
             <button
-              onClick={() => inSelectMode ? toggle(f.stem) : onSelect(f.stem)}
+              onClick={() => inSelectMode ? handleCheck(f.stem, false) : onSelect(f.stem)}
               className="flex-1 flex items-center gap-2 text-left min-w-0"
             >
               <span className={`flex-1 truncate text-xs ${f.stem === selectedStem ? 'text-neutral-100' : 'text-neutral-400'}`}>{f.stem}</span>
