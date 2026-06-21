@@ -1,123 +1,58 @@
-"""File watcher — monitors 1_input/ and runs the full pipeline for each new file.
+"""File watcher — monitors 1_input/, uploads to MinIO, notifies Project Service.
 
-On startup: scans 1_input/ to recover from restart without move-out/back workarounds.
-On new file: strips quarantine attrs, then runs pipeline stages via runner.execute().
+On startup: re-ingests any files left in 1_input/ from a previous restart.
+On new file: strips quarantine attrs, uploads to MinIO input/, POSTs to /jobs.
 On error: renames file to .failed so it is skipped on next restart.
 """
-import json
+from __future__ import annotations
 import logging
 import os
-import shutil
-import sqlite3
 import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import httpx
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
-from datetime import timedelta
-
 from pipeline.config import load, workspace
-from pipeline.lifecycle import parse_retention, scan_and_expire, safe_unlink
-from pipeline.mq.publisher import EventPublisher
-from pipeline import runner
-from pipeline import stages as _stages
-from pipeline import telemetry as _tel
-from opentelemetry import metrics as _otel_metrics
+from pipeline.lifecycle import parse_retention, scan_and_expire
 
 log = logging.getLogger(__name__)
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="watcher")
+_API_URL = os.getenv("API_URL", "http://localhost:8080")
 
 
-def _init_telemetry(cfg: dict) -> None:
-    endpoint = cfg.get("otel", {}).get("endpoint", "localhost:4317")
-    _tel.init(endpoint)
-
-
-def _meter() -> "_otel_metrics.Meter":
-    return _otel_metrics.get_meter("mediaflow.pipeline")
-
-
-def _run_pipeline(path: Path, cfg: dict, pub: EventPublisher) -> None:
-    """Run all configured stages for a single file. Called in a worker thread."""
-    stem = path.stem
-    ws = Path(cfg["pipeline"]["workspace_dir"])
-
-    recording_type = _stages._detect_recording_type(stem, cfg)
-    _meter().create_up_down_counter(
-        "mediaflow.pipeline.active_jobs", unit="jobs"
-    ).add(1)
-    _meter().create_counter(
-        "mediaflow.jobs.submitted", unit="jobs"
-    ).add(1, {"recording_type": recording_type})
-
-    meta_path = path.parent / f"{stem}_meta.json"
-    meta = {}
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text())
-        except Exception:
-            pass
-
-    ctx = {
-        "stem": stem,
-        "input_path": path,
-        "workspace": ws,
-        "output_dir": ws / "3_output",
-        "audio_path": ws / "2_processing" / f"{stem}_clean.wav",
-        "srt_path": ws / "3_output" / f"{stem}.srt",
-        "initial_prompt": meta.get("initial_prompt", ""),
-    }
+def _ingest_file(path: Path, cfg: dict) -> None:
+    """Upload file to MinIO input/ and notify Project Service via POST /jobs."""
+    from api.utils.minio import get_client
+    filename = path.name
+    minio_key = f"input/{filename}"
 
     try:
-        stop_after = cfg.get("pipeline", {}).get("stop_after_stage")
-        ctx = runner.execute(cfg, ctx, pub, stop_after=stop_after)
-
-        archive_dir = ws / "4_archive"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        path.rename(archive_dir / path.name)
-
-        lc = cfg.get("lifecycle", {})
-        # backward-compat: pipeline.cleanup_wav=true treated as lifecycle.wav=immediate
-        _old_cleanup = cfg.get("pipeline", {}).get("cleanup_wav", False)
-        wav_setting = lc.get("wav") or ("immediate" if _old_cleanup else "keep")
-        if parse_retention(wav_setting) == timedelta(0):
-            safe_unlink(ctx["audio_path"], "wav")
-
-        chunk_dir = ws / "2_processing" / f"{stem}_chunks"
-        if chunk_dir.exists():
-            shutil.rmtree(chunk_dir, ignore_errors=True)
-            log.info("Cleaned up chunk dir: %s", chunk_dir.name)
-
-        if meta_path.exists():
-            meta_path.unlink(missing_ok=True)
-
-        if parse_retention(lc.get("archive", "forever")) == timedelta(0):
-            safe_unlink(ws / "4_archive" / path.name, "archive")
-
-        _meter().create_counter(
-            "mediaflow.jobs.completed", unit="jobs"
-        ).add(1, {"recording_type": recording_type})
-        _meter().create_up_down_counter(
-            "mediaflow.pipeline.active_jobs", unit="jobs"
-        ).add(-1)
-
-        pub.publish("task.completed", stem, output_path=str(ctx["srt_path"]))
-        log.info("DONE %s", stem)
-
+        client = get_client()
+        client.upload_file(minio_key, path, bucket=client.input_bucket)
+        log.info("Uploaded %s → MinIO %s", filename, minio_key)
     except Exception as exc:
-        log.error("Pipeline FAILED for %s: %s", stem, exc)
-        _meter().create_counter(
-            "mediaflow.jobs.failed", unit="jobs"
-        ).add(1, {"stage": ctx.get("_last_stage", "unknown"), "error_type": type(exc).__name__})
-        _meter().create_up_down_counter(
-            "mediaflow.pipeline.active_jobs", unit="jobs"
-        ).add(-1)
-        pub.publish("task.failed", stem, error_msg=str(exc))
+        log.error("MinIO upload failed for %s: %s", filename, exc)
+        _mark_failed(path)
+        return
+
+    try:
+        resp = httpx.post(
+            f"{_API_URL}/jobs",
+            json={"file_key": minio_key, "filename": filename},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        job_id = resp.json().get("job_id")
+        log.info("Submitted %s → job_id=%s", filename, job_id)
+        path.unlink(missing_ok=True)
+    except Exception as exc:
+        log.error("API notify failed for %s: %s", filename, exc)
         _mark_failed(path)
 
 
@@ -130,58 +65,6 @@ def _mark_failed(path: Path) -> None:
         log.error("Could not rename %s to .failed: %s", path.name, exc)
 
 
-def _run_rerun(stem: str, from_stage: "str | None", cfg: dict, pub: EventPublisher) -> None:
-    """Execute a rerun command dispatched from the reruns DB table."""
-    from pipeline.rerun import rerun
-    try:
-        rerun(stem, from_stage or "preprocess", cfg, pub)
-    except Exception as exc:
-        log.error("Rerun FAILED for %s: %s", stem, exc)
-        _meter().create_counter(
-            "mediaflow.jobs.failed", unit="jobs"
-        ).add(1, {"stage": from_stage or "unknown", "error_type": type(exc).__name__})
-        pub.publish("task.failed", stem, error_msg=str(exc))
-
-
-def _rerun_poller(
-    cfg: dict,
-    pub: EventPublisher,
-    db_path: str,
-    stop_event: threading.Event,
-) -> None:
-    """Poll the reruns table every 2 s and dispatch work to the thread pool."""
-    log.info("Rerun poller started (db=%s)", db_path)
-    conn = None
-    while not stop_event.is_set():
-        try:
-            if conn is None:
-                conn = sqlite3.connect(db_path)
-                conn.row_factory = sqlite3.Row
-            row = None
-            with conn:
-                cur = conn.execute(
-                    "SELECT * FROM reruns ORDER BY requested_at ASC LIMIT 1"
-                )
-                row = cur.fetchone()
-                if row:
-                    conn.execute("DELETE FROM reruns WHERE id = ?", (row["id"],))
-            if row:
-                log.info("Rerun queued: stem=%s from_stage=%s", row["stem"], row["from_stage"])
-                _executor.submit(_run_rerun, row["stem"], row["from_stage"], cfg, pub)
-        except Exception as exc:
-            log.warning("Rerun poller: %s — will retry", exc)
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                conn = None
-        time.sleep(2)
-    if conn is not None:
-        conn.close()
-    log.info("Rerun poller stopped")
-
-
 def _lifecycle_poller(cfg: dict, ws: Path, stop_event: threading.Event) -> None:
     """Hourly scan of 2_processing/ and 4_archive/ for time-based retention rules."""
     log.info("Lifecycle poller started")
@@ -190,7 +73,6 @@ def _lifecycle_poller(cfg: dict, ws: Path, stop_event: threading.Event) -> None:
             lc = cfg.get("lifecycle", {})
             wav_ret = parse_retention(lc.get("wav", "keep"))
             arch_ret = parse_retention(lc.get("archive", "forever"))
-            # Only scan for time-based retention; immediate is handled on-completion
             if wav_ret is not None and wav_ret.total_seconds() > 0:
                 scan_and_expire(ws / "2_processing", wav_ret, stem_pattern="*_clean.wav")
             if arch_ret is not None and arch_ret.total_seconds() > 0:
@@ -202,9 +84,8 @@ def _lifecycle_poller(cfg: dict, ws: Path, stop_event: threading.Event) -> None:
 
 
 class InputHandler(FileSystemEventHandler):
-    def __init__(self, cfg: dict, publisher: EventPublisher):
+    def __init__(self, cfg: dict):
         self._cfg = cfg
-        self._pub = publisher
         self._formats = set(cfg["pipeline"]["supported_formats"])
 
     def on_created(self, event: FileCreatedEvent):
@@ -218,49 +99,26 @@ class InputHandler(FileSystemEventHandler):
         self._submit(path)
 
     def _submit(self, path: Path):
-        # Strip macOS quarantine attrs; no-op on Linux
         try:
             subprocess.run(["xattr", "-c", str(path)], capture_output=True)
         except FileNotFoundError:
             pass
-
-        stem = path.stem
-        log.info("SUBMIT %s", path.name)
-        self._pub.publish("task.submitted", stem, filename=path.name)
-        _executor.submit(_run_pipeline, path, self._cfg, self._pub)
+        log.info("Detected %s", path.name)
+        _executor.submit(_ingest_file, path, self._cfg)
 
 
 def run():
     cfg = load()
-    pub = EventPublisher(cfg)
     input_dir = workspace(cfg, "1_input")
     input_dir.mkdir(parents=True, exist_ok=True)
 
-    _init_telemetry(cfg)
+    from api.utils.minio import init_client
+    try:
+        init_client()
+    except Exception as exc:
+        log.warning("MinIO init failed (will retry per-file): %s", exc)
 
-    def _queue_depth_callback(options):
-        from opentelemetry.metrics import Observation
-        depth = len([f for f in input_dir.iterdir()
-                     if f.is_file() and not f.name.startswith('.')])
-        yield Observation(depth)
-
-    _otel_metrics.get_meter("mediaflow.pipeline").create_observable_gauge(
-        "mediaflow.queue.depth",
-        callbacks=[_queue_depth_callback],
-        unit="files",
-        description="Files waiting in 1_input/",
-    )
-
-    db_path = os.getenv("DB_PATH", "./data/pipeline.db")
     stop_ev = threading.Event()
-    poller = threading.Thread(
-        target=_rerun_poller,
-        args=(cfg, pub, db_path, stop_ev),
-        daemon=True,
-        name="rerun-poller",
-    )
-    poller.start()
-
     lc_poller = threading.Thread(
         target=_lifecycle_poller,
         args=(cfg, Path(cfg["pipeline"]["workspace_dir"]), stop_ev),
@@ -269,13 +127,13 @@ def run():
     )
     lc_poller.start()
 
-    handler = InputHandler(cfg, pub)
+    handler = InputHandler(cfg)
     observer = PollingObserver(timeout=5)
     observer.schedule(handler, str(input_dir), recursive=False)
     observer.start()
-
     log.info("Watching %s", input_dir)
 
+    # Recover files left from previous run
     for f in sorted(input_dir.iterdir()):
         if f.name.endswith(".failed"):
             continue
