@@ -40,7 +40,7 @@ Lifecycle managed by object storage TTL policies:
 | `input/` | 1h | Raw upload; Project Service copies to `processing/` then TTL cleans up |
 | `processing/` | 7d | Staged input + intermediates: `segments.json`, verification outputs, `clean.wav` |
 | `output/` | forever | `{job}.srt`, `_summary.md/json`, `_corrected.srt`, `clean.wav` |
-| `clips/` | 10min | On-demand segment audio clips (presigned URL cache) |
+| `clips/` | 1d object lifecycle | On-demand segment audio clips; presigned URLs expire 1h |
 
 ---
 
@@ -196,8 +196,11 @@ output_srt_path     TEXT
 corrected_srt_path  TEXT
 verification_status TEXT    DEFAULT 'unverified'
                     unverified | in_progress | verified
-verified_at         REAL
-verified_by         TEXT    ← reserved for multi-user
+verified_at          REAL
+verified_by          TEXT    ← reserved for multi-user
+minio_input_key      TEXT    ← original upload key in input/ bucket
+minio_processing_key TEXT    ← copied key in processing/ bucket (retry source)
+initial_prompt       TEXT    DEFAULT ''  ← per-request Whisper warm-up vocab
 ```
 
 ### dag_flows

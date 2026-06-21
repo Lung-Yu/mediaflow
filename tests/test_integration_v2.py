@@ -46,6 +46,7 @@ async def test_full_v2_flow_completes():
     redis = AsyncMock()
 
     with patch("api.services.project.upsert_job", upsert_job), \
+         patch("api.services.project.check_capacity", AsyncMock()), \
          patch("api.services.dag.upsert_job", upsert_job), \
          patch("api.services.dag.get_job", get_job), \
          patch("api.services.dag.get_dag_flow", get_dag_flow), \

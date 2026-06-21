@@ -1,4 +1,4 @@
-"""DAG-Service — job orchestration: trigger, stage callback, retry."""
+"""DAG-Service — job orchestration: trigger, stage callback, retry, watchdog."""
 from __future__ import annotations
 import json
 import logging
@@ -8,13 +8,26 @@ import time
 
 import asyncpg
 
-from api.db.queries import get_dag_flow, insert_event, upsert_job, get_job
+from api.db.queries import count_active_jobs, get_dag_flow, insert_event, upsert_job, get_job
 
 log = logging.getLogger(__name__)
 
 _MQ_KEY = "mediaflow:jobs"
 _MAX_RETRIES = int(os.getenv("PIPELINE_MAX_RETRIES", "3"))
 _RETRY_BACKOFF = int(os.getenv("PIPELINE_RETRY_BACKOFF_SEC", "30"))
+_MAX_CONCURRENT = int(os.getenv("PIPELINE_MAX_CONCURRENT_JOBS", "2"))
+_JOB_TIMEOUT_SEC = int(os.getenv("PIPELINE_JOB_TIMEOUT_SEC", str(60 * 60)))  # 1 hour
+
+
+class CapacityError(RuntimeError):
+    """Raised when in-flight jobs are at the configured limit."""
+
+
+async def check_capacity(pool: asyncpg.Pool) -> None:
+    """Raise CapacityError if at or over max_concurrent_jobs."""
+    active = await count_active_jobs(pool)
+    if active >= _MAX_CONCURRENT:
+        raise CapacityError(f"Max concurrent jobs ({_MAX_CONCURRENT}) reached ({active} in flight)")
 
 
 async def trigger_job(
@@ -27,13 +40,15 @@ async def trigger_job(
 ) -> None:
     flow = await get_dag_flow(pool, dag_flow_id)
     stage_ids = [s["stage"] for s in flow["stage_plan"]]
+    now = time.time()
     await upsert_job(
         pool, job_id,
         filename=filename,
         dag_flow_id=flow["id"],
         status="queued",
         minio_processing_key=minio_processing_key,
-        submitted_at=time.time(),
+        submitted_at=now,
+        started_at=now,  # watchdog baseline: reset each time we dispatch to MQ
     )
     await _xadd(redis, job_id, minio_processing_key, flow["stage_plan"], 0, stage_ids[0])
 
@@ -59,7 +74,7 @@ async def handle_stage_callback(
                              retry_count=retry_attempt + 1,
                              current_stage=stage)
             _enqueue_after_backoff(
-                redis, job_id,
+                pool, redis, job_id,
                 job["minio_processing_key"],
                 flow["stage_plan"],
                 retry_attempt + 1,
@@ -82,6 +97,40 @@ async def handle_stage_callback(
         log.info("Job %s completed", job_id)
 
 
+async def recover_stuck_jobs(pool: asyncpg.Pool, redis) -> None:
+    """Detect jobs that stopped reporting past timeout and re-enqueue as retries.
+
+    Compensates for immediate-ack in worker: if worker crashes, no callback arrives
+    and this watchdog re-enqueues the job after _JOB_TIMEOUT_SEC seconds.
+    """
+    cutoff = time.time() - _JOB_TIMEOUT_SEC
+    rows = await pool.fetch(
+        """SELECT * FROM jobs
+           WHERE status IN ('queued', 'processing')
+             AND (started_at IS NULL OR started_at < $1)""",
+        cutoff,
+    )
+    for row in rows:
+        job = dict(row)
+        retry_count = job.get("retry_count") or 0
+        log.warning("Watchdog: stuck job %s (status=%s retry=%d)",
+                    job["id"], job["status"], retry_count)
+        if retry_count < _MAX_RETRIES:
+            flow = await get_dag_flow(pool, job.get("dag_flow_id"))
+            resume = job.get("current_stage") or flow["stage_plan"][0]["stage"]
+            await insert_event(pool, job["id"], resume, "failed",
+                               retry_attempt=retry_count,
+                               error_msg="watchdog: job timeout, worker did not respond")
+            await upsert_job(pool, job["id"], status="queued", retry_count=retry_count + 1)
+            _enqueue_after_backoff(pool, redis, job["id"], job["minio_processing_key"],
+                                   flow["stage_plan"], retry_count + 1, resume)
+        else:
+            await upsert_job(pool, job["id"],
+                             status="failed",
+                             error_msg="watchdog: job timeout after max retries",
+                             completed_at=time.time())
+
+
 async def _xadd(redis, job_id, processing_path, stage_plan, retry_attempt, resume_from):
     await redis.xadd(_MQ_KEY, {
         "job_id": job_id,
@@ -92,13 +141,17 @@ async def _xadd(redis, job_id, processing_path, stage_plan, retry_attempt, resum
     })
 
 
-def _enqueue_after_backoff(redis, job_id, processing_path, stage_plan, retry_attempt, resume_from):
+def _enqueue_after_backoff(pool, redis, job_id, processing_path, stage_plan, retry_attempt, resume_from):
     """Re-enqueue after backoff delay. Runs in a daemon thread."""
     import asyncio
 
-    def _run():
-        time.sleep(_RETRY_BACKOFF)
-        asyncio.run(_xadd(redis, job_id, processing_path, stage_plan, retry_attempt, resume_from))
+    async def _run():
+        await _xadd(redis, job_id, processing_path, stage_plan, retry_attempt, resume_from)
+        await upsert_job(pool, job_id, started_at=time.time())  # reset watchdog baseline
         log.info("Re-enqueued job %s (attempt %d, from %s)", job_id, retry_attempt, resume_from)
 
-    threading.Thread(target=_run, daemon=True).start()
+    def _thread():
+        time.sleep(_RETRY_BACKOFF)
+        asyncio.run(_run())
+
+    threading.Thread(target=_thread, daemon=True).start()

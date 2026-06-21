@@ -77,6 +77,7 @@ def test_rerun_job_triggers_dag():
         "dag_flow_id": "general-v1",
     }
     with patch("api.db.get_job", AsyncMock(return_value=fake_job)), \
+         patch("api.routes.jobs.check_capacity", AsyncMock()), \
          patch("api.routes.jobs.trigger_job", AsyncMock()):
         resp = client.post("/jobs/job1/rerun")
     assert resp.status_code == 201

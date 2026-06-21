@@ -13,6 +13,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import uuid
+
 import httpx
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
@@ -30,7 +32,7 @@ def _ingest_file(path: Path, cfg: dict) -> None:
     """Upload file to MinIO input/ and notify Project Service via POST /jobs."""
     from api.utils.minio import get_client
     filename = path.name
-    minio_key = f"input/{filename}"
+    minio_key = f"input/{uuid.uuid4().hex[:8]}_{filename}"
 
     try:
         client = get_client()

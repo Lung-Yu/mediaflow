@@ -41,7 +41,8 @@ async def test_on_upload_trigger_creates_job():
     minio.head_object = MagicMock(return_value={"ContentLength": 1024})
 
     with patch("api.services.project.trigger_job", AsyncMock()) as mock_trigger, \
-         patch("api.services.project.upsert_job", AsyncMock()):
+         patch("api.services.project.upsert_job", AsyncMock()), \
+         patch("api.services.project.check_capacity", AsyncMock()):
         job_id = await on_upload_trigger(
             pool, redis, minio,
             file_key="input/test.m4a",
@@ -62,7 +63,8 @@ async def test_on_upload_trigger_fr6_failure_raises_http_400():
     minio = MagicMock()
     minio.head_object = MagicMock(return_value={"ContentLength": 0})
 
-    with pytest.raises(HTTPException) as exc_info:
+    with patch("api.services.project.check_capacity", AsyncMock()), \
+         pytest.raises(HTTPException) as exc_info:
         await on_upload_trigger(
             pool, redis, minio,
             file_key="input/test.m4a",

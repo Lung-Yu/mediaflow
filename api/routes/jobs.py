@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from api import db
-from api.services.dag import trigger_job
+from api.db.queries import get_stage_events
+from api.services.dag import trigger_job, check_capacity, CapacityError
 from api.services.project import on_upload_trigger
 from api.utils import minio as minio_mod
 
@@ -61,6 +62,10 @@ async def rerun_job(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     if not job.get("minio_processing_key"):
         raise HTTPException(status_code=409, detail="No processing audio to rerun from")
+    try:
+        await check_capacity(pool)
+    except CapacityError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
     await trigger_job(
         pool, redis,
         job_id=job_id,
@@ -69,6 +74,14 @@ async def rerun_job(job_id: str, request: Request):
         dag_flow_id=job.get("dag_flow_id"),
     )
     return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/{job_id}/events")
+async def get_job_events(job_id: str, request: Request):
+    job = await db.get_job(request.app.state.pool, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    return await get_stage_events(request.app.state.pool, job_id)
 
 
 @router.get("")

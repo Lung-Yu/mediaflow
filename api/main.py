@@ -19,6 +19,7 @@ from api.utils import minio as minio_mod
 from api.utils import cleanup
 from api.utils.lifecycle import parse_retention
 from api.services.reconcile import reconcile
+from api.services.dag import recover_stuck_jobs
 from api.routes import files, jobs as jobs_router, stats, status, upload
 from api.routes import dag_callback, correction, clip
 
@@ -76,12 +77,27 @@ async def lifespan(app: FastAPI):
     output_dir = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
     cleanup_task = asyncio.create_task(cleanup.cleanup_loop(app.state.pool, output_dir, output_retention))
 
+    # Start watchdog — detects workers that crashed after immediate-ack
+    _watchdog_interval = int(os.getenv("PIPELINE_WATCHDOG_INTERVAL_SEC", str(5 * 60)))
+
+    async def _watchdog_loop():
+        while True:
+            await asyncio.sleep(_watchdog_interval)
+            try:
+                await recover_stuck_jobs(app.state.pool, app.state.redis)
+            except Exception as exc:
+                logging.getLogger(__name__).error("Watchdog error: %s", exc)
+
+    watchdog_task = asyncio.create_task(_watchdog_loop())
+
     yield
+    watchdog_task.cancel()
     cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+    for task in (watchdog_task, cleanup_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     await app.state.pool.close()
     await app.state.redis.aclose()
 

@@ -80,6 +80,10 @@ def _upload_outputs(client, job_id: str, output_dir: Path):
 
 
 def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
+    # Ack immediately — retry ownership belongs to DAG-Service, not MQ redelivery.
+    # Watchdog in DAG-Service recovers crashed workers via job timeout.
+    r.xack(_MQ_KEY, _CONSUMER_GROUP, msg_id)
+
     from api.utils.minio import get_client  # ponytail: reuse existing singleton
     cfg = load_config()
     client = get_client()
@@ -119,7 +123,6 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
         pub.report_failure(failed_stage, str(exc))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-        r.xack(_MQ_KEY, _CONSUMER_GROUP, msg_id)
 
 
 def _ensure_consumer_group(r: redis_lib.Redis):

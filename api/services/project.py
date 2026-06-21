@@ -8,7 +8,7 @@ import asyncpg
 from fastapi import HTTPException
 
 from api.db.queries import upsert_job
-from api.services.dag import trigger_job
+from api.services.dag import trigger_job, check_capacity, CapacityError
 
 _MAX_FILE_BYTES = int(os.getenv("UPLOAD_MAX_FILE_BYTES", str(5 * 1024 ** 3)))
 _MAX_FILENAME_LEN = 255
@@ -39,6 +39,12 @@ async def on_upload_trigger(
     submitted_by: str = "anonymous",
 ) -> str:
     """Verify upload, FR6 check, copy to processing/, create job, trigger DAG."""
+    # 0. capacity check — before any side effects
+    try:
+        await check_capacity(pool)
+    except CapacityError as exc:
+        raise HTTPException(429, str(exc))
+
     # 1. verify file in MinIO input/
     try:
         meta = minio.head_object(file_key)
