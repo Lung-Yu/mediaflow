@@ -21,7 +21,7 @@ from api.utils.lifecycle import parse_retention
 from api.services.reconcile import reconcile
 from api.mq import events_consumer
 from api.mq import jobs_consumer
-from api.routes import clip, correction, dag_callback, events, files, jobs as jobs_router, stats, status, tasks, upload
+from api.routes import clip, correction, dag_callback, events, files, jobs as jobs_router, stats, status, stream, tasks, upload
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -102,6 +102,7 @@ app.include_router(files.router)
 app.include_router(jobs_router.router)
 app.include_router(stats.router)
 app.include_router(status.router)
+app.include_router(stream.router)
 app.include_router(tasks.router)
 app.include_router(upload.router)
 

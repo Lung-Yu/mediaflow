@@ -42,6 +42,18 @@ def get_srt(stem: str):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+@router.put("/{stem}/srt")
+def save_srt(stem: str, body: dict = Body(...)):
+    path = _srt_path(stem)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="SRT not found")
+    content = body.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+    path.write_text(content, encoding="utf-8")
+    return {"saved": True, "bytes": len(content.encode())}
+
+
 # ── Summary text ──────────────────────────────────────────────
 @router.get("/{stem}/summary", response_class=PlainTextResponse)
 def get_summary(stem: str):
