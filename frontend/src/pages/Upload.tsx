@@ -32,7 +32,6 @@ async function uploadFile(
 
   onProgress(90, '完成中…')
   await api.uploadComplete({ upload_id: init.upload_id, minio_key: init.minio_key, parts: completedParts })
-  await api.createJob(init.minio_key)
   onProgress(100, '✓ 已加入佇列')
 }
 

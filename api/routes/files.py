@@ -1,6 +1,7 @@
 """SRT file access — list, view, search transcripts, speaker labels."""
 import json
 import os
+import re
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -44,6 +45,8 @@ def get_srt(stem: str):
 
 @router.put("/{stem}/srt")
 def save_srt(stem: str, body: dict = Body(...)):
+    if not re.match(r'^[A-Za-z0-9_\-]+$', stem):
+        raise HTTPException(status_code=400, detail="Invalid stem")
     path = _srt_path(stem)
     if not path.exists():
         raise HTTPException(status_code=404, detail="SRT not found")

@@ -11,6 +11,7 @@ export function useSSE() {
 
     es.addEventListener('status', (e: MessageEvent) => {
       const data = JSON.parse(e.data) as StatusOverview
+      // stream.py returns id not stem (unlike /status/); normalize both paths
       const norm = (tasks: StatusOverview[keyof StatusOverview]) =>
         tasks.map(t => ({ ...t, stem: t.stem ?? t.id }))
       queryClient.setQueryData<StatusOverview>(['status'], {
