@@ -216,6 +216,9 @@ def _ensure_consumer_group(r: redis_lib.Redis):
 
 
 def run():
+    from api.utils.minio import init_client
+    init_client()
+
     cfg = load_config()
     max_workers = cfg.get("pipeline", {}).get("max_concurrent_jobs", 2)
     redis_host = os.getenv("REDIS_HOST", "localhost")

@@ -43,6 +43,18 @@ async def upsert_job(pool: asyncpg.Pool, job_id: str, **kwargs: Any) -> None:
     await pool.execute(sql, job_id, *vals)
 
 
+async def update_job(pool: asyncpg.Pool, job_id: str, **kwargs: Any) -> None:
+    """UPDATE an existing job row. Use when the row is guaranteed to exist."""
+    bad = set(kwargs) - _ALLOWED_JOB_COLUMNS
+    if bad:
+        raise ValueError(f"update_job: unknown columns: {bad}")
+    cols = list(kwargs.keys())
+    vals = list(kwargs.values())
+    set_list = ", ".join(f"{c} = ${i+2}" for i, c in enumerate(cols))
+    sql = f"UPDATE jobs SET {set_list} WHERE id = $1"
+    await pool.execute(sql, job_id, *vals)
+
+
 async def get_job(pool: asyncpg.Pool, job_id: str) -> Optional[dict]:
     row = await pool.fetchrow("SELECT * FROM jobs WHERE id = $1", job_id)
     return dict(row) if row else None

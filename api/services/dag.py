@@ -8,7 +8,7 @@ import time
 
 import asyncpg
 
-from api.db.queries import count_active_jobs, get_dag_flow, insert_event, upsert_job, get_job
+from api.db.queries import count_active_jobs, get_dag_flow, insert_event, upsert_job, update_job, get_job
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ async def handle_stage_callback(
         if retry_attempt < _MAX_RETRIES:
             job = await get_job(pool, job_id)
             flow = await get_dag_flow(pool, job["dag_flow_id"])
-            await upsert_job(pool, job_id,
+            await update_job(pool, job_id,
                              status="queued",
                              retry_count=retry_attempt + 1,
                              current_stage=stage)
@@ -81,7 +81,7 @@ async def handle_stage_callback(
                 stage,
             )
         else:
-            await upsert_job(pool, job_id,
+            await update_job(pool, job_id,
                              status="failed",
                              error_msg=error_msg,
                              completed_at=time.time())
@@ -92,10 +92,10 @@ async def handle_stage_callback(
     flow = await get_dag_flow(pool, job["dag_flow_id"])
     stage_ids = [s["stage"] for s in flow["stage_plan"]]
     # reset started_at so watchdog timeout counts from last successful stage, not job start
-    await upsert_job(pool, job_id, current_stage=stage, status="processing",
+    await update_job(pool, job_id, current_stage=stage, status="processing",
                      started_at=time.time())
     if stage == stage_ids[-1]:
-        await upsert_job(pool, job_id, status="completed", completed_at=time.time())
+        await update_job(pool, job_id, status="completed", completed_at=time.time())
         log.info("Job %s completed", job_id)
 
 
@@ -125,11 +125,11 @@ async def recover_stuck_jobs(pool: asyncpg.Pool, redis) -> None:
             await insert_event(pool, job["id"], resume, "failed",
                                retry_attempt=retry_count,
                                error_msg="watchdog: job timeout, worker did not respond")
-            await upsert_job(pool, job["id"], status="queued", retry_count=retry_count + 1)
+            await update_job(pool, job["id"], status="queued", retry_count=retry_count + 1)
             _enqueue_after_backoff(pool, redis, job["id"], job["minio_processing_key"],
                                    flow["stage_plan"], retry_count + 1, resume)
         else:
-            await upsert_job(pool, job["id"],
+            await update_job(pool, job["id"],
                              status="failed",
                              error_msg="watchdog: job timeout after max retries",
                              completed_at=time.time())
@@ -151,7 +151,7 @@ def _enqueue_after_backoff(pool, redis, job_id, processing_path, stage_plan, ret
 
     async def _run():
         await _xadd(redis, job_id, processing_path, stage_plan, retry_attempt, resume_from)
-        await upsert_job(pool, job_id, started_at=time.time())  # reset watchdog baseline
+        await update_job(pool, job_id, started_at=time.time())  # reset watchdog baseline
         log.info("Re-enqueued job %s (attempt %d, from %s)", job_id, retry_attempt, resume_from)
 
     def _thread():
