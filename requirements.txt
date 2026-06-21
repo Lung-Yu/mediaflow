@@ -23,8 +23,4 @@ aiofiles==24.1.0
 aiosqlite==0.20.0
 asyncpg==0.30.0
 
-# Dev
-# CVE-2025-71176 (pytest tmpdir, medium) fixed at 9.0.3 — requires Python >=3.10.
-# Host runs Python 3.9; upgrade host Python to fix. Dev/test-only, not in Docker.
-pytest==8.4.2
-pytest-asyncio==0.24.0
+# Dev tools live in requirements-dev.txt — kept separate so Docker images don't include them.
