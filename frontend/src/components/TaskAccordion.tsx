@@ -21,14 +21,15 @@ export function TaskAccordion({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [rerunStage, setRerunStage] = useState('')
   const qc = useQueryClient()
+  const stem = task.stem ?? task.id
 
   const { data: detail } = useQuery({
-    queryKey: ['task-detail', task.stem],
+    queryKey: ['task-detail', stem],
     queryFn: async () => {
       const [timeline, summary, segments] = await Promise.all([
-        api.getTimeline(task.stem),
-        api.getSummary(task.stem),
-        api.getSegments(task.stem),
+        api.getTimeline(stem),
+        api.getSummary(stem),
+        api.getSegments(stem),
       ])
       return { timeline, summary, segments: segments.slice(0, 3) }
     },
@@ -37,11 +38,9 @@ export function TaskAccordion({ task }: { task: Task }) {
   })
 
   const rerun = useMutation({
-    mutationFn: () => api.rerunTask(task.stem, rerunStage || null),
+    mutationFn: () => api.rerunTask(stem, rerunStage || null),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['status'] }),
   })
-
-  const stem = task.stem ?? task.id
 
   return (
     <div className="border border-neutral-800 rounded-lg overflow-hidden">
