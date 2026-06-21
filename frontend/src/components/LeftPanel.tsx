@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { DropZone } from '@/components/DropZone'
+import { StatsSummary } from '@/components/StatsSummary'
+import { TranscriptList } from '@/components/TranscriptList'
 import type { StatusOverview } from '@/api/types'
 
 type UploadItem = {
@@ -94,9 +96,6 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
     })
   }, [])
 
-  void selectedStem
-  void onSelect
-
   return (
     <div className="w-80 flex-shrink-0 flex flex-col border-r border-neutral-800 overflow-hidden">
 
@@ -146,10 +145,11 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
         </div>
       )}
 
-      {/* Stats + TranscriptList + Failed — added in Tasks 4–5 */}
-      <div className="flex-1 flex items-center justify-center text-xs text-neutral-700">
-        transcript list (coming soon)
-      </div>
+      {/* Stats */}
+      <StatsSummary />
+
+      {/* Transcript list — scrollable */}
+      <TranscriptList selectedStem={selectedStem} onSelect={onSelect} />
 
       {/* Failed */}
       {data.failed.length > 0 && (
