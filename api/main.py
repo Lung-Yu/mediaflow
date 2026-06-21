@@ -22,7 +22,7 @@ from api.services.reconcile import reconcile
 from api.mq import events_consumer
 from api.mq import jobs_consumer
 from api.routes import events, files, jobs as jobs_router, stats, status, tasks, upload
-from api.routes import dag_callback
+from api.routes import dag_callback, correction
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -103,6 +103,7 @@ app.include_router(status.router)
 app.include_router(tasks.router)
 app.include_router(upload.router)
 app.include_router(dag_callback.router)
+app.include_router(correction.router)
 
 
 @app.get("/health")
