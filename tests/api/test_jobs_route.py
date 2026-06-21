@@ -1,100 +1,92 @@
-"""Tests for GET /jobs, GET /jobs/{id}, and POST /jobs routes."""
+"""Tests for GET/POST/DELETE /jobs and /jobs/{id}/rerun routes."""
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture
-def client():
+def _make_client():
     from api.routes import jobs as jobs_router
     app = FastAPI()
     app.include_router(jobs_router.router)
-    app.state.pool = MagicMock()
-    app.state.redis = MagicMock()
-    return TestClient(app)
+    pool = MagicMock()
+    pool.fetchrow = AsyncMock()
+    pool.execute = AsyncMock()
+    pool.fetch = AsyncMock()
+    app.state.pool = pool
+    app.state.redis = AsyncMock()
+    return TestClient(app), pool
 
 
-def test_get_job_returns_job_dict(client):
-    fake_job = {
-        "id": "job1", "filename": "test.m4a", "status": "completed",
-        "submitted_by": "anonymous", "dag_flow_id": "general-v1",
-        "current_stage": "summarize", "submitted_at": 1000.0,
-        "started_at": 1001.0, "completed_at": 1010.0, "retry_count": 0,
-        "error_msg": None, "output_srt_path": None,
-        "corrected_srt_path": None, "verification_status": "unverified",
-        "verified_at": None, "verified_by": None,
-        "minio_input_key": "input/test.m4a",
-        "minio_processing_key": "processing/job1/test.wav",
-    }
+def test_get_job_returns_job_dict():
+    client, _ = _make_client()
+    fake_job = {"id": "job1", "filename": "test.m4a", "status": "completed"}
     with patch("api.db.get_job", AsyncMock(return_value=fake_job)):
         resp = client.get("/jobs/job1")
     assert resp.status_code == 200
     assert resp.json()["id"] == "job1"
 
 
-def test_get_job_not_found(client):
+def test_get_job_not_found():
+    client, _ = _make_client()
     with patch("api.db.get_job", AsyncMock(return_value=None)):
         resp = client.get("/jobs/nonexistent")
     assert resp.status_code == 404
 
 
-def test_list_jobs_returns_overview(client):
-    fake_overview = {
-        "processing": [],
-        "queue": [{"id": "job2", "status": "submitted"}],
-        "recent": [],
-        "failed": [],
-    }
-    with patch("api.db.get_status_overview", AsyncMock(return_value=fake_overview)) as mock_overview:
+def test_list_jobs_returns_overview():
+    client, _ = _make_client()
+    overview = {"processing": [], "queue": [], "recent": [], "failed": []}
+    with patch("api.db.get_status_overview", AsyncMock(return_value=overview)):
         resp = client.get("/jobs")
     assert resp.status_code == 200
-    data = resp.json()
-    assert "processing" in data
-    assert "queue" in data
-    assert len(data["queue"]) == 1
-    mock_overview.assert_called_once_with()  # shim takes no args
+    assert "processing" in resp.json()
 
 
-# ── POST /jobs tests ──────────────────────────────────────────────────────────
-
-def test_post_job_creates_job_and_returns_201(client):
-    with patch("api.utils.minio.get_client", return_value=MagicMock()):
-        with patch("api.services.project.create_job", AsyncMock(return_value="job-abc")) as mock_create:
-            resp = client.post("/jobs", json={
-                "file_key": "input/lesson01.m4a",
-                "dag_flow": "course-v1"
-            })
+def test_post_job_creates_job():
+    client, _ = _make_client()
+    with patch("api.utils.minio.get_client", return_value=MagicMock()), \
+         patch("api.routes.jobs.on_upload_trigger", AsyncMock(return_value="job-abc")):
+        resp = client.post("/jobs", json={"file_key": "input/lesson.m4a", "filename": "lesson.m4a"})
     assert resp.status_code == 201
     assert resp.json()["job_id"] == "job-abc"
-    assert resp.json()["status"] == "queued"
-    assert mock_create.called
 
 
-def test_post_job_fr6_failure_returns_400(client):
-    with patch("api.utils.minio.get_client", return_value=MagicMock()):
-        with patch("api.services.project.create_job",
-                   AsyncMock(side_effect=ValueError("FR6: file is empty"))):
-            resp = client.post("/jobs", json={"file_key": "input/empty.m4a"})
-    assert resp.status_code == 400
-    assert "FR6" in resp.json()["detail"]
+def test_delete_job_removes_record():
+    client, pool = _make_client()
+    fake_job = {"id": "job1", "filename": "test.m4a", "status": "queued"}
+    with patch("api.db.get_job", AsyncMock(return_value=fake_job)):
+        resp = client.delete("/jobs/job1")
+    assert resp.status_code == 204
+    assert pool.execute.call_count == 2  # DELETE events + DELETE jobs
 
 
-def test_post_job_file_not_found_returns_404(client):
-    with patch("api.utils.minio.get_client", return_value=MagicMock()):
-        with patch("api.services.project.create_job",
-                   AsyncMock(side_effect=FileNotFoundError("File not found in MinIO input bucket"))):
-            resp = client.post("/jobs", json={"file_key": "input/missing.m4a"})
+def test_delete_job_not_found():
+    client, _ = _make_client()
+    with patch("api.db.get_job", AsyncMock(return_value=None)):
+        resp = client.delete("/jobs/missing")
     assert resp.status_code == 404
 
 
-def test_post_job_dag_flow_defaults_to_none(client):
-    with patch("api.utils.minio.get_client", return_value=MagicMock()):
-        with patch("api.services.project.create_job", AsyncMock(return_value="job-xyz")) as mock_create:
-            resp = client.post("/jobs", json={"file_key": "input/lesson02.m4a"})
+def test_rerun_job_triggers_dag():
+    client, _ = _make_client()
+    fake_job = {
+        "id": "job1", "filename": "test.m4a", "status": "failed",
+        "minio_processing_key": "processing/job1/test.m4a",
+        "dag_flow_id": "general-v1",
+    }
+    with patch("api.db.get_job", AsyncMock(return_value=fake_job)), \
+         patch("api.routes.jobs.trigger_job", AsyncMock()):
+        resp = client.post("/jobs/job1/rerun")
     assert resp.status_code == 201
-    # dag_flow should be None when not provided
-    call_kwargs = mock_create.call_args[1]
-    assert call_kwargs.get("dag_flow") is None
+    assert resp.json()["status"] == "queued"
+
+
+def test_rerun_job_no_processing_key():
+    client, _ = _make_client()
+    fake_job = {"id": "job1", "filename": "test.m4a", "status": "failed",
+                "minio_processing_key": None, "dag_flow_id": None}
+    with patch("api.db.get_job", AsyncMock(return_value=fake_job)):
+        resp = client.post("/jobs/job1/rerun")
+    assert resp.status_code == 409

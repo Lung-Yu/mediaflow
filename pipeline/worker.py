@@ -15,7 +15,6 @@ import redis as redis_lib
 
 from pipeline.config import load as load_config
 from pipeline.runner import execute as run_stages
-from pipeline.mq.publisher import EventPublisher
 
 log = logging.getLogger(__name__)
 

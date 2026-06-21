@@ -1,26 +1,22 @@
-"""On API startup, scan workspace/3_output/ and fill any tasks missing from DB.
-
-This ensures no permanent data loss even if Redis events were dropped
-while the API was down.
-"""
+"""On API startup, scan workspace/3_output/ and fill any jobs missing from DB."""
 import os
-import time
 from pathlib import Path
-from api import db
+
+import asyncpg
+
+from api.db.queries import upsert_job
 
 WORKSPACE = Path(os.getenv("WORKSPACE_DIR", "./workspace"))
 
 
-async def reconcile():
+async def reconcile(pool: asyncpg.Pool) -> None:
     output_dir = WORKSPACE / "3_output"
     if not output_dir.exists():
         return
-
     for srt in output_dir.glob("*.srt"):
         stem = srt.stem
-        # Insert only if not already tracked — upsert won't overwrite existing status
-        await db.upsert_task(
-            stem,
+        await upsert_job(
+            pool, stem,
             filename=f"{stem}.srt",
             status="completed",
             output_srt_path=str(srt),

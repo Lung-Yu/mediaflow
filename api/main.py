@@ -19,9 +19,7 @@ from api.utils import minio as minio_mod
 from api.utils import cleanup
 from api.utils.lifecycle import parse_retention
 from api.services.reconcile import reconcile
-from api.mq import events_consumer
-from api.mq import jobs_consumer
-from api.routes import events, files, jobs as jobs_router, stats, status, tasks, upload
+from api.routes import files, jobs as jobs_router, stats, status, upload
 from api.routes import dag_callback, correction, clip
 
 DATABASE_URL = os.getenv(
@@ -50,7 +48,7 @@ async def lifespan(app: FastAPI):
     app.state.pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
     app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     await db.init(app.state.pool)
-    await reconcile()
+    await reconcile(app.state.pool)
 
     minio_mod.init_client()
     try:
@@ -76,17 +74,14 @@ async def lifespan(app: FastAPI):
     # Start output cleanup loop
     output_retention = parse_retention(os.getenv("LIFECYCLE_OUTPUT", "forever"))
     output_dir = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
-    cleanup_task = asyncio.create_task(cleanup.cleanup_loop(output_dir, output_retention))
+    cleanup_task = asyncio.create_task(cleanup.cleanup_loop(app.state.pool, output_dir, output_retention))
 
-    redis_task = asyncio.create_task(events_consumer.run())
-    queue_task = asyncio.create_task(jobs_consumer.run())
     yield
-    for task in [cleanup_task, redis_task, queue_task]:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     await app.state.pool.close()
     await app.state.redis.aclose()
 
@@ -95,12 +90,10 @@ app = FastAPI(title="mediaflow API", lifespan=lifespan)
 FastAPIInstrumentor.instrument_app(app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.include_router(events.router)
 app.include_router(files.router)
 app.include_router(jobs_router.router)
 app.include_router(stats.router)
 app.include_router(status.router)
-app.include_router(tasks.router)
 app.include_router(upload.router)
 app.include_router(dag_callback.router)
 app.include_router(correction.router)

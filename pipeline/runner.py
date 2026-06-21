@@ -24,7 +24,6 @@ from typing import Callable, Optional
 from opentelemetry import metrics as _otel_metrics
 
 from pipeline import stages
-from pipeline.mq.publisher import EventPublisher
 
 log = logging.getLogger(__name__)
 
@@ -138,7 +137,7 @@ STAGE_RUNNERS: dict[str, Callable] = {
 def execute(
     cfg: dict,
     ctx: dict,
-    pub: EventPublisher,
+    pub,
     from_stage: Optional[str] = None,
     stop_after: Optional[str] = None,
 ) -> dict:

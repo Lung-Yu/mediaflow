@@ -15,13 +15,12 @@ async def test_app_state_has_pool_after_lifespan():
     mock_minio_client.set_bucket_lifecycle = MagicMock()
 
     with patch("asyncpg.create_pool", AsyncMock(return_value=fake_pool)), \
+         patch("redis.asyncio.from_url", MagicMock(return_value=AsyncMock())), \
          patch("api.db.init", AsyncMock()), \
          patch("api.main.reconcile", AsyncMock()), \
          patch("api.utils.minio.init_client", MagicMock()), \
          patch("api.utils.minio.get_client", MagicMock(return_value=mock_minio_client)), \
-         patch("api.utils.cleanup.cleanup_loop", AsyncMock()), \
-         patch("api.mq.events_consumer.run", AsyncMock()), \
-         patch("api.mq.jobs_consumer.run", AsyncMock()):
+         patch("api.utils.cleanup.cleanup_loop", AsyncMock()):
         from api.main import app, lifespan
         async with lifespan(app):
             assert app.state.pool is fake_pool

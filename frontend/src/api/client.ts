@@ -47,9 +47,9 @@ export const api = {
   uploadInit:       (req: UploadInitRequest) => json<UploadInitResponse>('POST', '/upload/init', req),
   uploadComplete:   (body: UploadCompleteRequest) =>
                       json<{ stem: string; status: string }>('POST', '/upload/complete', body),
-  rerunTask:        (stem: string, from_stage: string | null) =>
-                      json<{ stem: string; status: string }>('POST', `/tasks/${stem}/runs`, { from_stage }),
-  cancelTask:       (stem: string) => del(`/tasks/${stem}`),
+  rerunTask:        (stem: string, _from_stage: string | null) =>
+                      json<{ job_id: string; status: string }>('POST', `/jobs/${stem}/rerun`),
+  cancelTask:       (stem: string) => del(`/jobs/${stem}`),
   deleteFile:       (stem: string) => del(`/files/${stem}`),
   audioUrl:         (stem: string) => `${BASE}/files/${stem}/audio`,
 }

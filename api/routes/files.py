@@ -1,12 +1,12 @@
 """SRT file access — list, view, search transcripts, speaker labels."""
+from __future__ import annotations
 import json
 import os
 import re
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from api.utils import srt as srtlib
-from api import db
 
 router = APIRouter(prefix="/files")
 
@@ -57,7 +57,7 @@ def list_srts():
 
 # ── Delete ───────────────────────────────────────────────────
 @router.delete("/{stem}")
-async def delete_file(stem: str):
+async def delete_file(stem: str, request: Request):
     if not re.match(r'^[A-Za-z0-9_\-一-鿿　-〿]+$', stem):
         raise HTTPException(status_code=400, detail="Invalid stem")
     deleted = []
@@ -67,7 +67,9 @@ async def delete_file(stem: str):
         if p.exists():
             p.unlink()
             deleted.append(p.name)
-    await db.delete_task(stem)
+    pool = request.app.state.pool
+    await pool.execute("DELETE FROM events WHERE job_id = $1", stem)
+    await pool.execute("DELETE FROM jobs WHERE id = $1", stem)
     return {"deleted": deleted}
 
 

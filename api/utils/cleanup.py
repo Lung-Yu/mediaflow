@@ -1,11 +1,12 @@
 """Async output cleanup — expires 3_output/ stems older than configured retention."""
+from __future__ import annotations
 import asyncio
 import logging
 import time
 from datetime import timedelta
 from pathlib import Path
 
-from api import db
+import asyncpg
 
 log = logging.getLogger(__name__)
 
@@ -20,8 +21,9 @@ _OUTPUT_SUFFIXES = [
 ]
 
 
-async def run_output_cleanup(output_dir: Path, retention: "timedelta | None") -> None:
-    """Scan output_dir for expired stems and delete their files + DB rows."""
+async def run_output_cleanup(
+    pool: asyncpg.Pool, output_dir: Path, retention: timedelta | None
+) -> None:
     if retention is None:
         return
     if not output_dir.exists():
@@ -33,7 +35,6 @@ async def run_output_cleanup(output_dir: Path, retention: "timedelta | None") ->
         try:
             mtime = srt.stat().st_mtime
         except FileNotFoundError:
-            log.debug("Already gone during scan: %s", srt.name)
             continue
 
         if mtime > cutoff:
@@ -46,20 +47,22 @@ async def run_output_cleanup(output_dir: Path, retention: "timedelta | None") ->
                 await asyncio.to_thread(path.unlink)
                 log.info("Deleted expired output: %s", path.name)
             except FileNotFoundError:
-                log.debug("Already gone: %s", path.name)
+                pass
             except OSError as exc:
                 log.warning("Could not delete %s: %s", path.name, exc)
 
-        await db.delete_task(stem)
+        await pool.execute("DELETE FROM events WHERE job_id = $1", stem)
+        await pool.execute("DELETE FROM jobs WHERE id = $1", stem)
         log.info("Pruned DB row for expired stem: %s", stem)
 
 
-async def cleanup_loop(output_dir: Path, retention: "timedelta | None") -> None:
-    """Run output cleanup every hour. Stopped by asyncio task cancellation."""
+async def cleanup_loop(
+    pool: asyncpg.Pool, output_dir: Path, retention: timedelta | None
+) -> None:
     log.info("Output cleanup loop started (retention=%s)", retention)
     while True:
         try:
-            await run_output_cleanup(output_dir, retention)
+            await run_output_cleanup(pool, output_dir, retention)
         except asyncio.CancelledError:
             log.info("Output cleanup loop stopped")
             return
