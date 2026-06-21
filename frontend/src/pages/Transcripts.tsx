@@ -35,7 +35,7 @@ export function Transcripts() {
             <Link
               key={f.stem}
               to={`/transcripts/${f.stem}`}
-              className="flex items-center gap-3 px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg hover:border-purple-700 hover:bg-neutral-800 transition-colors"
+              className="flex items-center gap-3 px-4 py-3 bg-neutral-900 border border-neutral-800 rounded-lg hover:border-purple-400 hover:bg-neutral-800 transition-colors"
             >
               <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
               <span className="flex-1 text-sm text-neutral-200">{f.stem}</span>

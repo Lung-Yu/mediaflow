@@ -35,7 +35,7 @@ export function StatsPanel() {
                 <span className="text-xs text-neutral-400 w-24 truncate">{sp.label}</span>
                 <div className="flex-1 h-2 bg-neutral-800 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-purple-500 rounded-full"
+                    className="h-full bg-purple-400 rounded-full"
                     style={{ width: `${sp.pct * 100}%` }}
                   />
                 </div>
