@@ -109,7 +109,7 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
   }, [])
 
   return (
-    <div className="w-80 flex-shrink-0 flex flex-col border-r border-neutral-800 overflow-hidden">
+    <div className="flex flex-col overflow-hidden w-full h-full">
 
       {/* Upload */}
       <div className="flex-shrink-0 p-3 border-b border-neutral-800">

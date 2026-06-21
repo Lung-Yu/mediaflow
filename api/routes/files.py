@@ -82,7 +82,7 @@ def get_srt(stem: str):
 
 @router.put("/{stem}/srt")
 def save_srt(stem: str, body: dict = Body(...)):
-    if not re.match(r'^[A-Za-z0-9_\-]+$', stem):
+    if not re.match(r'^[A-Za-z0-9_\-一-鿿　-〿]+$', stem):
         raise HTTPException(status_code=400, detail="Invalid stem")
     path = _srt_path(stem)
     if not path.exists():

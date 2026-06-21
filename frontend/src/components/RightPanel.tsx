@@ -8,14 +8,19 @@ import { SrtEditor } from '@/components/SrtEditor'
 import { SummarySection } from '@/components/SummarySection'
 import { KeywordList } from '@/components/KeywordList'
 
+type Tab = 'summary' | 'keywords' | 'edit'
+
 interface Props {
   stem: string | null
 }
 
 export function RightPanel({ stem }: Props) {
   const [q, setQ] = useState('')
+  const [tab, setTab] = useState<Tab>('summary')
   const [currentTime, setCurrentTime] = useState(-1)
+  const [bottomH, setBottomH] = useState<number | null>(null) // null = 50/50 via flex
   const audioRef = useRef<HTMLAudioElement>(null)
+  const resizeAreaRef = useRef<HTMLDivElement>(null)
   const debouncedQ = useDebounce(q, 300)
 
   const { data: speakerData } = useQuery({
@@ -31,6 +36,26 @@ export function RightPanel({ stem }: Props) {
     enabled: !!stem,
     staleTime: 30_000,
   })
+
+  const onDragBottom = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const y0 = e.clientY
+    const h0 = bottomH ?? (resizeAreaRef.current ? resizeAreaRef.current.clientHeight / 2 : 300)
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      const avail = resizeAreaRef.current?.clientHeight ?? 600
+      setBottomH(Math.max(80, Math.min(h0 - (ev.clientY - y0), avail - 80)))
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   if (!stem) {
     return (
@@ -71,17 +96,49 @@ export function RightPanel({ stem }: Props) {
         </a>
       </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto">
-        <SrtEditor stem={stem} />
-        <SrtSegmentList
-          segments={segments}
-          currentTime={currentTime}
-          onSeek={hasAudio ? (t: number) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
+      {/* Resizable split area */}
+      <div ref={resizeAreaRef} className="flex-1 flex flex-col overflow-hidden min-h-0">
+
+        {/* Transcript */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <SrtSegmentList
+            segments={segments}
+            currentTime={currentTime}
+            onSeek={hasAudio ? (t: number) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
+          />
+        </div>
+
+        {/* Drag handle */}
+        <div
+          className="h-1 flex-shrink-0 bg-neutral-800 cursor-row-resize hover:bg-purple-600/50 active:bg-purple-500/70 transition-colors"
+          onMouseDown={onDragBottom}
         />
-        <div className="px-4 pb-6 mt-4 space-y-2">
-          <SummarySection stem={stem} />
-          <KeywordList />
+
+        {/* Bottom panel — tabs */}
+        <div
+          className="flex-shrink-0 flex flex-col"
+          style={bottomH !== null ? { height: bottomH } : { flex: 1 }}
+        >
+          {/* Tab bar */}
+          <div className="flex flex-shrink-0 border-b border-neutral-800">
+            {([['summary', '摘要'], ['keywords', '關鍵字'], ['edit', '校正逐字稿']] as [Tab, string][]).map(([key, label]) => (
+              <button key={key} onClick={() => setTab(key)}
+                className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${tab === key ? 'text-purple-300 border-purple-500' : 'text-neutral-500 border-transparent hover:text-neutral-300'}`}
+              >{label}</button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className={`flex-1 overflow-y-auto min-h-0${tab !== 'edit' ? ' px-4 py-3' : ''}`}>
+            {tab === 'summary' && <SummarySection stem={stem} />}
+            {tab === 'keywords' && <KeywordList />}
+            {tab === 'edit' && (
+            <SrtEditor
+              stem={stem}
+              onSeek={hasAudio ? (t) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
+            />
+          )}
+          </div>
         </div>
       </div>
     </div>
