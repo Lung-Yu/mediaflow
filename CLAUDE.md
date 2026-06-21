@@ -245,22 +245,6 @@ redis-cli XREAD COUNT 10 STREAMS mediaflow:jobs 0
 
 ---
 
-## Version Control (Trunk-Based Development)
+## Version Control
 
-Single `main` branch, always deployable.
-
-| Rule | Detail |
-|------|--------|
-| **`main` is always green** | Short-lived branches for multi-session work |
-| **Small, atomic commits** | One logical change per commit |
-| **Do not push unless asked** | User confirms each push |
-| **No force-push to `main`** | Non-negotiable |
-
-### Commit Message Format
-
-```
-<type>(<scope>): <one-line summary>
-
-type: feat | fix | chore | docs | refactor | test
-scope: pipeline | api | web | frontend | stages | diarize (optional)
-```
+Trunk-based development on `main`. See [`docs/git-workflow.md`](docs/git-workflow.md) for branching rules, commit format, and tagging procedure. See [`docs/releases.md`](docs/releases.md) for the current unreleased changelog and release history.
