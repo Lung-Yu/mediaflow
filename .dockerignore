@@ -1,0 +1,22 @@
+# large data dirs
+workspace/
+models/
+data/
+
+# python env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# frontend (has its own context)
+frontend/node_modules/
+frontend/dist/
+
+# dev / local
+.env
+config.yaml
+*.log
+.DS_Store
+docs/
