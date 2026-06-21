@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 from datetime import timedelta
 
@@ -270,7 +270,7 @@ def run():
     lc_poller.start()
 
     handler = InputHandler(cfg, pub)
-    observer = Observer()
+    observer = PollingObserver(timeout=5)
     observer.schedule(handler, str(input_dir), recursive=False)
     observer.start()
 

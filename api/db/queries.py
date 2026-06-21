@@ -85,7 +85,7 @@ async def get_status_overview(pool: asyncpg.Pool) -> dict:
 
 async def count_active_jobs(pool: asyncpg.Pool) -> int:
     row = await pool.fetchrow(
-        "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('submitted','queued','processing')"
+        "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('queued','processing')"
     )
     return row["count"] if row else 0
 
