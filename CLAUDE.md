@@ -164,6 +164,18 @@ minio:
 Env vars override config at runtime: `PIPELINE_MAX_RETRIES`, `PIPELINE_JOB_TIMEOUT_SEC`,
 `PIPELINE_MAX_CONCURRENT_JOBS`, `DAGSERVICE_URL`, `MINIO_ENDPOINT`, etc.
 
+**Worker resource limits** (prevent CPU exhaustion on the host):
+
+| Env var | Default | Effect |
+|---|---|---|
+| `WORKER_CPU_THREADS` | `2` | FFmpeg `-threads` + Demucs/PyTorch `OMP_NUM_THREADS` |
+| `WORKER_NICE` | `10` | OS scheduling priority (0 = normal, 19 = lowest) |
+
+```bash
+# Example: allow more CPU, higher priority
+WORKER_CPU_THREADS=4 WORKER_NICE=5 bash scripts/ctl.sh start worker
+```
+
 ---
 
 ## How to Run (Development)
@@ -172,31 +184,39 @@ Env vars override config at runtime: `PIPELINE_MAX_RETRIES`, `PIPELINE_JOB_TIMEO
 # 1. Copy and edit config
 cp config.yaml.example config.yaml
 
-# 2. Start Docker services
-bash scripts/ctl.sh start docker
+# 2. Start everything (Docker + Whisper + Watcher + Worker)
+make start
+# or: bash scripts/ctl.sh start all
 
-# 3. Start Whisper + Watcher
-bash scripts/ctl.sh start whisper
-bash scripts/ctl.sh start watcher
-
-# 4. Start worker (separate terminal)
-source venv/bin/activate
-python -m pipeline.worker
-
-# 5. Frontend dev server
+# 3. Frontend dev server
 cd frontend && npm run dev
 # Web: http://localhost:3000   API: http://localhost:8080
 ```
 
-### Service Control (`scripts/ctl.sh`)
+### Service Control
+
+`Makefile` is the primary interface; `scripts/ctl.sh` is the implementation.
 
 ```bash
-bash scripts/ctl.sh status
-bash scripts/ctl.sh start  [all|docker|whisper|watcher|diarize]
-bash scripts/ctl.sh stop   [all|docker|whisper|watcher|diarize]
-bash scripts/ctl.sh restart [all|api|web|watcher|whisper|diarize]
-bash scripts/ctl.sh rebuild [all|docker|api|web]
-bash scripts/ctl.sh logs   [api|web|redis|watcher|whisper|diarize]
+make status                    # show all service status + health
+make start                     # start all (Docker + Whisper + Watcher + Worker)
+make stop                      # stop all
+make restart                   # stop + start all
+make restart-worker            # restart just the worker (e.g. after code change)
+make logs-worker               # tail worker log
+make logs-api                  # tail API (Docker) log
+make rebuild                   # rebuild Docker images + restart everything
+make start-diarize             # optional: speaker diarization :9003
+```
+
+Full service list for `start/stop/restart/logs`:
+`all` · `docker` · `whisper` · `watcher` · `worker` · `diarize` · `api` · `web` · `redis`
+
+```bash
+# Direct ctl.sh (equivalent)
+bash scripts/ctl.sh restart worker
+bash scripts/ctl.sh logs    worker
+bash scripts/ctl.sh rebuild api
 ```
 
 ### Smoke Test
