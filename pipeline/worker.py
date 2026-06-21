@@ -23,6 +23,79 @@ _CONSUMER_GROUP = "pipeline-workers"
 _CONSUMER_NAME = f"worker-{os.getpid()}"
 _DAGSERVICE_URL = os.getenv("DAGSERVICE_URL", "http://localhost:8080")
 
+# Stage order used to determine which intermediates to restore on resume
+_STAGE_ORDER = [
+    "preprocess", "segment_audio", "transcribe", "verify_segments",
+    "correct_srt", "diarize", "summarize", "detect_chapters",
+]
+
+
+def _stage_index(stage_id: str) -> int:
+    try:
+        return _STAGE_ORDER.index(stage_id)
+    except ValueError:
+        return 0
+
+
+def _upload_stage_intermediates(client, job_id: str, stage_id: str, ctx: dict) -> None:
+    """Persist stage outputs to MinIO processing/ so retries can resume mid-pipeline."""
+    prefix = f"processing/{job_id}/intermediates"
+    if stage_id == "preprocess":
+        audio = ctx.get("audio_path")
+        if audio and Path(audio).exists():
+            client.upload_file(f"{prefix}/{Path(audio).name}", Path(audio),
+                               bucket=client.processing_bucket)
+    elif stage_id == "transcribe":
+        srt = ctx.get("srt_path")
+        if srt and Path(srt).exists():
+            client.upload_file(f"{prefix}/{Path(srt).name}", Path(srt),
+                               bucket=client.processing_bucket)
+        if srt:
+            seg = Path(srt).parent / f"{Path(srt).stem}_segments.json"
+            if seg.exists():
+                client.upload_file(f"{prefix}/{seg.name}", seg,
+                                   bucket=client.processing_bucket)
+
+
+def _restore_intermediates(client, job_id: str, from_stage: str, processing_path: str,
+                           workdir: Path, output_dir: Path) -> dict:
+    """Download intermediates needed when resuming from a mid-pipeline stage."""
+    prefix = f"processing/{job_id}/intermediates"
+    from_idx = _stage_index(from_stage)
+    extra: dict = {}
+
+    if from_idx > _stage_index("preprocess"):
+        original_stem = Path(processing_path.split("/")[-1]).stem
+        audio_name = f"{original_stem}_clean.wav"
+        audio_dest = workdir / "2_processing" / audio_name
+        audio_dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            client.download_file_from(f"{prefix}/{audio_name}", audio_dest,
+                                      bucket=client.processing_bucket)
+            extra["audio_path"] = audio_dest
+            log.info("Restored intermediate audio: %s", audio_name)
+        except Exception as exc:
+            log.warning("Cannot restore audio intermediate for %s: %s", job_id, exc)
+
+    if from_idx > _stage_index("transcribe"):
+        srt_name = f"{job_id}.srt"
+        seg_name = f"{job_id}_segments.json"
+        srt_dest = output_dir / srt_name
+        try:
+            client.download_file_from(f"{prefix}/{srt_name}", srt_dest,
+                                      bucket=client.processing_bucket)
+            extra["srt_path"] = srt_dest
+            log.info("Restored intermediate SRT: %s", srt_name)
+        except Exception as exc:
+            log.warning("Cannot restore SRT intermediate for %s: %s", job_id, exc)
+        try:
+            client.download_file_from(f"{prefix}/{seg_name}", output_dir / seg_name,
+                                      bucket=client.processing_bucket)
+        except Exception:
+            pass  # segments.json absent in some flows
+
+    return extra
+
 
 class _CallbackPub:
     """Publishes stage results to DAG-Service via HTTP POST."""
@@ -115,7 +188,17 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
             "output_dir": output_dir,
             "input_path": audio_path,
         }
-        run_stages(job_cfg, ctx, pub, from_stage=resume_from)
+
+        first_stage = stage_plan[0]["stage"]
+        if resume_from and resume_from != first_stage:
+            extra = _restore_intermediates(
+                client, job_id, resume_from, processing_path, workdir, output_dir)
+            ctx.update(extra)
+
+        def _on_stage_done(stage_id: str, new_ctx: dict) -> None:
+            _upload_stage_intermediates(client, job_id, stage_id, new_ctx)
+
+        run_stages(job_cfg, ctx, pub, from_stage=resume_from, per_stage_done=_on_stage_done)
         _upload_outputs(client, job_id, output_dir)
     except Exception as exc:
         failed_stage = pub._last_stage or resume_from or stage_plan[0]["stage"]

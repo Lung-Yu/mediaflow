@@ -140,6 +140,7 @@ def execute(
     pub,
     from_stage: Optional[str] = None,
     stop_after: Optional[str] = None,
+    per_stage_done=None,
 ) -> dict:
     """Run enabled pipeline stages in config order.
 
@@ -179,6 +180,11 @@ def execute(
         t0 = time.monotonic()
         ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
         elapsed = time.monotonic() - t0
+        if per_stage_done:
+            try:
+                per_stage_done(sid, ctx)
+            except Exception as _exc:
+                log.warning("per_stage_done failed stage=%s: %s", sid, _exc)
 
         meter = _otel_metrics.get_meter("mediaflow.pipeline")
         meter.create_histogram(
