@@ -21,10 +21,8 @@ from api.db.queries import (
 __all__ = [
     "init", "upsert_job", "get_job", "insert_event", "get_status_overview",
     "count_active_jobs", "get_dag_flow", "get_task_aggregates", "get_stage_events",
-    # legacy shims below
     "upsert_task", "get_task", "count_active_tasks",
     "delete_task", "get_upload_queue", "get_oldest_pending",
-    "insert_rerun", "pop_oldest_rerun",
 ]
 
 
@@ -159,11 +157,3 @@ async def get_oldest_pending() -> dict | None:
     return None
 
 
-async def insert_rerun(stem: str, from_stage: str | None) -> None:
-    """Stub: reruns table not in v2 schema — rerun routing handled by queue consumer."""
-    pass
-
-
-async def pop_oldest_rerun() -> dict | None:
-    """Stub: reruns table not in v2 schema."""
-    return None

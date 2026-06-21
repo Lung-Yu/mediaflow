@@ -67,3 +67,10 @@ export interface UploadInitResponse {
   part_size: number
   parts: UploadPart[]
 }
+
+export interface UploadCompleteRequest {
+  upload_id: string
+  minio_key: string
+  parts: { part_number: number; etag: string }[]
+  initial_prompt?: string
+}

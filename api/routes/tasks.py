@@ -1,7 +1,5 @@
-"""Task management — submit, rerun, delete, and timeline."""
+"""Task management — rerun, delete, and timeline."""
 import os
-import re
-import shutil
 import time
 from pathlib import Path
 from typing import Optional
@@ -14,65 +12,17 @@ from api import db
 router = APIRouter(prefix="/tasks")
 
 WORKSPACE = Path(os.getenv("WORKSPACE_DIR", "./workspace"))
-SUPPORTED_FORMATS = set(
-    os.getenv("PIPELINE_SUPPORTED_FORMATS", ".mp4,.m4a,.mp3,.wav,.flac").split(",")
-)
 _VALID_STAGES = frozenset({
     "preprocess", "transcribe", "verify_segments", "correct_srt",
     "diarize", "summarize", "detect_chapters",
 })
 _ACTIVE_STATUSES = {
     "pending", "downloading", "queued", "submitted", "processing",
-    "preprocessing", "transcribing", "verifying", "correcting",
-    "diarizing", "summarizing", "detecting_chapters",
 }
-
-
-def _stem_from_filename(filename: str) -> str:
-    name = filename.rsplit(".", 1)[0]
-    name = re.sub(r"[^\w\-]", "_", name.lower())
-    name = re.sub(r"_+", "_", name).strip("_")
-    return name or "upload"
-
-
-class SubmitRequest(BaseModel):
-    path: str
-    stem: Optional[str] = None
 
 
 class RunRequest(BaseModel):
     from_stage: Optional[str] = None
-
-
-@router.post("", status_code=201)
-async def submit_task(req: SubmitRequest):
-    """Create a task from a host-local file path. Trusts the caller has filesystem access — intended for same-machine automation only, not exposed to the internet."""
-    path = Path(req.path)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    if path.suffix not in SUPPORTED_FORMATS:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported format: {path.suffix!r}. Supported: {sorted(SUPPORTED_FORMATS)}",
-        )
-
-    stem = req.stem or _stem_from_filename(path.name)
-    existing = await db.get_task(stem)
-    if existing and existing["status"] in _ACTIVE_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task {stem!r} already active (status={existing['status']})",
-        )
-
-    dest = WORKSPACE / "1_input" / path.name
-    try:
-        shutil.copy2(path, dest)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to stage file: {exc}")
-
-    ts = time.time()
-    await db.upsert_task(stem, filename=path.name, status="submitted", submitted_at=ts)
-    return {"stem": stem, "filename": path.name, "status": "submitted", "submitted_at": ts}
 
 
 @router.post("/{stem}/runs", status_code=201)

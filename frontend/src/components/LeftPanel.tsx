@@ -16,6 +16,7 @@ type UploadItem = {
 
 async function uploadFile(
   file: File,
+  initialPrompt: string,
   onProgress: (pct: number, msg: string) => void,
 ): Promise<void> {
   onProgress(0, '初始化中…')
@@ -34,7 +35,7 @@ async function uploadFile(
     completedParts.push({ part_number: part.part_number, etag: res.headers.get('ETag') ?? '' })
   }
   onProgress(90, '完成中…')
-  await api.uploadComplete({ upload_id: init.upload_id, minio_key: init.minio_key, parts: completedParts })
+  await api.uploadComplete({ upload_id: init.upload_id, minio_key: init.minio_key, parts: completedParts, initial_prompt: initialPrompt })
   onProgress(100, '✓ 已加入佇列')
 }
 
@@ -73,6 +74,7 @@ export interface LeftPanelProps {
 export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [cancelConfirm, setCancelConfirm] = useState<string | null>(null)
+  const [initialPrompt, setInitialPrompt] = useState('')
   const qc = useQueryClient()
 
   const { data = EMPTY } = useQuery({
@@ -95,7 +97,7 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
     files.forEach(file => {
       const key = `${file.name}-${Date.now()}`
       setUploads(prev => [...prev, { key, name: file.name, progress: 0, message: '初始化中…', status: 'uploading' }])
-      uploadFile(file, (progress, message) => {
+      uploadFile(file, initialPrompt, (progress, message) => {
         setUploads(prev => prev.map(u => u.key === key
           ? { ...u, progress, message, status: progress === 100 ? 'done' : 'uploading' }
           : u
@@ -112,6 +114,13 @@ export function LeftPanel({ selectedStem, onSelect }: LeftPanelProps) {
       {/* Upload */}
       <div className="flex-shrink-0 p-3 border-b border-neutral-800">
         <DropZone onFiles={handleFiles} />
+        <textarea
+          value={initialPrompt}
+          onChange={e => setInitialPrompt(e.target.value)}
+          placeholder="初始提示詞（選填）：人名、術語、縮寫…"
+          rows={2}
+          className="mt-2 w-full text-xs bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-purple-600 resize-none"
+        />
         {uploads.map(u => (
           <div key={u.key} className="mt-2">
             <div className="flex items-center gap-2 text-xs">

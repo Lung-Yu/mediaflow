@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useSSE } from '@/hooks/useSSE'
 import { LeftPanel } from '@/components/LeftPanel'
 import { RightPanel } from '@/components/RightPanel'
 
 export function Home() {
-  useSSE()
   const [searchParams, setSearchParams] = useSearchParams()
   const [stem, setStem] = useState<string | null>(searchParams.get('stem'))
 

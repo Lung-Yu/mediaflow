@@ -1,6 +1,6 @@
 import type {
   StatusOverview, SrtFile, Segment, SpeakerData,
-  StatsOverview, Keyword, UploadInitRequest, UploadInitResponse,
+  StatsOverview, Keyword, UploadInitRequest, UploadInitResponse, UploadCompleteRequest,
 } from './types'
 
 const BASE = '/api'
@@ -45,12 +45,11 @@ export const api = {
   getStatsOverview: () => get<StatsOverview>('/stats/overview'),
   getKeywords:      () => get<Keyword[]>('/stats/keywords'),
   uploadInit:       (req: UploadInitRequest) => json<UploadInitResponse>('POST', '/upload/init', req),
-  uploadComplete:   (body: { upload_id: string; minio_key: string; parts: { part_number: number; etag: string }[] }) =>
+  uploadComplete:   (body: UploadCompleteRequest) =>
                       json<{ stem: string; status: string }>('POST', '/upload/complete', body),
   rerunTask:        (stem: string, from_stage: string | null) =>
                       json<{ stem: string; status: string }>('POST', `/tasks/${stem}/runs`, { from_stage }),
   cancelTask:       (stem: string) => del(`/tasks/${stem}`),
   deleteFile:       (stem: string) => del(`/files/${stem}`),
   audioUrl:         (stem: string) => `${BASE}/files/${stem}/audio`,
-  sseUrl:           () => `${BASE}/events/stream`,
 }
