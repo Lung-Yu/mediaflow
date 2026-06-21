@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useSSE } from '@/hooks/useSSE'
 import { LeftPanel } from '@/components/LeftPanel'
+import { RightPanel } from '@/components/RightPanel'
 
 export function Home() {
   useSSE()
@@ -21,9 +22,7 @@ export function Home() {
   return (
     <div className="flex w-full overflow-hidden">
       <LeftPanel selectedStem={stem} onSelect={selectStem} />
-      <div className="flex-1 flex items-center justify-center text-xs text-neutral-600">
-        right panel (coming soon)
-      </div>
+      <RightPanel stem={stem} />
     </div>
   )
 }
