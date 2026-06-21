@@ -12,6 +12,26 @@ router = APIRouter(prefix="/files")
 WORKSPACE = Path(os.getenv("WORKSPACE_DIR", "./workspace"))
 OUTPUT_DIR = WORKSPACE / "3_output"
 PROCESSING_DIR = WORKSPACE / "2_processing"
+ARCHIVE_DIR = WORKSPACE / "4_archive"
+
+_AUDIO_MIME = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+    ".flac": "audio/flac",
+}
+
+def _find_audio(stem: str) -> tuple[Path, str] | None:
+    """Return (path, mime) for the best available audio source, or None."""
+    wav = PROCESSING_DIR / f"{stem}_clean.wav"
+    if wav.exists():
+        return wav, "audio/wav"
+    for ext, mime in _AUDIO_MIME.items():
+        p = ARCHIVE_DIR / f"{stem}{ext}"
+        if p.exists():
+            return p, mime
+    return None
 
 
 def _srt_path(stem: str) -> Path:
@@ -69,10 +89,11 @@ def get_summary(stem: str):
 # ── Audio file ────────────────────────────────────────────────
 @router.get("/{stem}/audio")
 def get_audio(stem: str):
-    path = PROCESSING_DIR / f"{stem}_clean.wav"
-    if not path.exists():
+    result = _find_audio(stem)
+    if result is None:
         raise HTTPException(status_code=404, detail="Audio not found")
-    return FileResponse(path, media_type="audio/wav")
+    path, mime = result
+    return FileResponse(path, media_type=mime)
 
 
 # ── Parsed segments (JSON) ────────────────────────────────────
@@ -128,7 +149,7 @@ def get_speaker_names(stem: str):
         except Exception:
             pass
 
-    has_audio = (PROCESSING_DIR / f"{stem}_clean.wav").exists()
+    has_audio = _find_audio(stem) is not None
     return {"speakers": speakers, "counts": counts, "names": names, "has_audio": has_audio}
 
 
