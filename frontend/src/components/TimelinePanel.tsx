@@ -3,7 +3,7 @@ import type { TaskTimeline } from '@/api/types'
 
 function fmtDur(sec: number | null) {
   if (!sec) return '—'
-  return sec >= 60 ? `${Math.floor(sec / 60)}m ${Math.floor(sec % 60)}s` : `${sec}s`
+  return sec >= 60 ? `${Math.floor(sec / 60)}m ${Math.floor(sec % 60)}s` : `${Math.floor(sec)}s`
 }
 
 export function TimelinePanel({ timeline }: { timeline: TaskTimeline | null }) {
@@ -29,7 +29,7 @@ export function TimelinePanel({ timeline }: { timeline: TaskTimeline | null }) {
               <span className="text-xs text-neutral-500 w-28 truncate">{s.stage}</span>
               <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-purple-500 rounded-full"
+                  className="h-full bg-purple-400 rounded-full"
                   style={{ width: `${((s.duration_sec ?? 0) / maxDur) * 100}%` }}
                 />
               </div>

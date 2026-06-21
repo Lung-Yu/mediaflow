@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -8,9 +8,19 @@ import { TimelinePanel } from '@/components/TimelinePanel'
 import { SpeakerPanel } from '@/components/SpeakerPanel'
 import { SrtEditor } from '@/components/SrtEditor'
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
+  return debounced
+}
+
 export function SrtViewer() {
   const { stem = '' } = useParams()
   const [q, setQ] = useState('')
+  const debouncedQ = useDebounce(q, 300)
   const [currentTime, setCurrentTime] = useState(-1)
   const audioRef = useRef<HTMLAudioElement>(null)
 
@@ -20,8 +30,8 @@ export function SrtViewer() {
     staleTime: 60_000,
   })
   const { data: segments = [] } = useQuery({
-    queryKey: ['segments', stem, q],
-    queryFn: () => api.getSegments(stem, q || undefined),
+    queryKey: ['segments', stem, debouncedQ],
+    queryFn: () => api.getSegments(stem, debouncedQ || undefined),
     staleTime: 30_000,
   })
   const { data: timeline = null } = useQuery({
@@ -38,13 +48,7 @@ export function SrtViewer() {
 
   return (
     <div>
-      {hasAudio && (
-        <AudioPlayer
-          ref={audioRef}
-          src={api.audioUrl(stem)}
-          onTimeUpdate={setCurrentTime}
-        />
-      )}
+      {hasAudio && <AudioPlayer audioRef={audioRef} src={api.audioUrl(stem)} onTimeUpdate={setCurrentTime} />}
 
       <div className="flex items-center gap-4 mb-4 mt-4">
         <h1 className="text-sm font-semibold text-neutral-300 flex-1 truncate">{stem}</h1>

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, forwardRef } from 'react'
+import { useRef, useState, useCallback } from 'react'
 
 function fmt(s: number) {
   if (!isFinite(s)) return '0:00'
@@ -8,11 +8,12 @@ function fmt(s: number) {
 interface Props {
   src: string
   onTimeUpdate?: (t: number) => void
+  audioRef?: React.RefObject<HTMLAudioElement>
 }
 
-export const AudioPlayer = forwardRef<HTMLAudioElement, Props>(function AudioPlayer({ src, onTimeUpdate }, ref) {
+export function AudioPlayer({ src, onTimeUpdate, audioRef: externalRef }: Props) {
   const internalRef = useRef<HTMLAudioElement>(null)
-  const audioRef = (ref as React.RefObject<HTMLAudioElement>) ?? internalRef
+  const audioRef = externalRef ?? internalRef
 
   const [playing, setPlaying] = useState(false)
   const [pct, setPct] = useState(0)
@@ -59,9 +60,9 @@ export const AudioPlayer = forwardRef<HTMLAudioElement, Props>(function AudioPla
         className="flex-1 h-1.5 bg-neutral-700 rounded-full cursor-pointer relative"
         onClick={seek}
       >
-        <div className="absolute left-0 top-0 h-full bg-purple-500 rounded-full" style={{ width: `${pct}%` }} />
+        <div className="absolute left-0 top-0 h-full bg-purple-400 rounded-full" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-neutral-500 tabular-nums w-28 text-right">{label}</span>
     </div>
   )
-})
+}
