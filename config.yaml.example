@@ -3,6 +3,10 @@
 
 pipeline:
   workspace_dir: ./workspace       # 1_input, 3_output, 4_archive subdirs
+  max_concurrent_jobs: 2           # Progress Worker thread pool size
+  max_queue_depth: 20              # reject POST /jobs if pending jobs >= this
+  max_retries: 3                   # per-job retry limit before final failure
+  retry_backoff_sec: 30            # seconds to wait before retry re-enqueue
   supported_formats:
     - .mp4
     - .m4a

@@ -137,6 +137,30 @@ class MinIOClient:
                     Key=f"{stem}/{stem}{suffix}",
                 )
 
+    def head_object(self, key: str, bucket: str | None = None) -> dict:
+        """Return object metadata dict (includes ContentLength). Raises on missing."""
+        return self._s3.head_object(Bucket=bucket or self.input_bucket, Key=key)
+
+    def upload_file(self, key: str, local_path, bucket: str | None = None) -> None:
+        """Upload local file to key in bucket (default: output_bucket)."""
+        self._s3.upload_file(str(local_path), bucket or self.output_bucket, key)
+
+    def download_file_from(self, key: str, dest, bucket: str | None = None) -> None:
+        """Download key from bucket (default: processing_bucket) to local path."""
+        from pathlib import Path as _Path
+        dest = _Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        self._s3.download_file(bucket or self.processing_bucket, key, str(dest))
+
+    def put_bytes(self, key: str, data: bytes, bucket: str | None = None) -> None:
+        """Put raw bytes to key in bucket (default: output_bucket)."""
+        self._s3.put_object(Bucket=bucket or self.output_bucket, Key=key, Body=data)
+
+    def get_bytes(self, key: str, bucket: str | None = None) -> bytes:
+        """Get raw bytes from key in bucket (default: output_bucket)."""
+        resp = self._s3.get_object(Bucket=bucket or self.output_bucket, Key=key)
+        return resp["Body"].read()
+
     def presign_get_url(self, bucket: str, key: str, expires_in: int = 604800) -> str:
         """Generate a presigned GET URL. Default expiry: 7 days."""
         url = self._s3.generate_presigned_url(
