@@ -13,6 +13,7 @@ Usage:
   uvicorn whisper.service:app --host 0.0.0.0 --port 9001
 """
 import asyncio
+import math
 import os
 import sys
 import tempfile
@@ -55,14 +56,17 @@ def _do_transcribe(
         result = mlx_whisper.transcribe(str(path), **kwargs)
         _model_loaded = True
 
+        def _f(v, default=0.0):
+            return v if (v is not None and math.isfinite(v)) else default
+
         segments = [
             {
                 "id": s.get("id", i),
-                "start": s["start"],
-                "end": s["end"],
+                "start": _f(s["start"]),
+                "end": _f(s["end"]),
                 "text": s["text"],
-                "avg_logprob": s.get("avg_logprob", 0.0),
-                "no_speech_prob": s.get("no_speech_prob", 0.0),
+                "avg_logprob": _f(s.get("avg_logprob")),
+                "no_speech_prob": _f(s.get("no_speech_prob")),
             }
             for i, s in enumerate(result.get("segments", []))
         ]
