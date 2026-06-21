@@ -5,6 +5,8 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { AudioPlayer } from '@/components/AudioPlayer'
 import { SrtSegmentList } from '@/components/SrtSegmentList'
 import { SrtEditor } from '@/components/SrtEditor'
+import { SummarySection } from '@/components/SummarySection'
+import { KeywordList } from '@/components/KeywordList'
 
 interface Props {
   stem: string | null
@@ -77,7 +79,10 @@ export function RightPanel({ stem }: Props) {
           currentTime={currentTime}
           onSeek={hasAudio ? (t: number) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
         />
-        <div />
+        <div className="px-4 pb-6 mt-4 space-y-2">
+          <SummarySection stem={stem} />
+          <KeywordList />
+        </div>
       </div>
     </div>
   )
