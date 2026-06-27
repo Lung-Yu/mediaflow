@@ -1,6 +1,6 @@
 # ASR 架構評估與演進紀錄
 
-**最後更新：** 2026-06-28
+**最後更新：** 2026-06-28（八、完整 pipeline 比對）
 **Branch：** `experiment/asr-qwen2audio-mlx`
 
 ---
@@ -331,7 +331,140 @@ Qwen3 0.6B 穩定把「技術一部」誤識為「新業務」，把職位縮寫
 
 ---
 
-## 八、參考資料
+## 八、完整 Pipeline 比對：Whisper-medium vs Qwen3-ASR 0.6B vs 1.7B（2026-06-28）
+
+**測試音訊：** 同一份 3 分鐘口語化中文會議錄音（技術部門主管報告 AI 工具應用）
+**完整 Pipeline：** preprocess → ASR → correct_srt → summarize（各自對應 dag flow）
+**記憶體管理修正後測試**（見 8.4）
+
+### 8.1 各模型基本資料
+
+| | Whisper-medium | Qwen3-ASR 0.6B | Qwen3-ASR 1.7B |
+|---|---|---|---|
+| 模型大小 | 1.4 GB | 1.46 GB | 3.8 GB |
+| 時間戳機制 | Whisper 內建（段落級） | ForcedAligner（毫秒級） | ForcedAligner（毫秒級） |
+| 輸出 segments | 69 條（短碎片） | 32 條（整句段落） | 33 條（整句段落） |
+| dag flow | `general-v2` | `general-v2-qwen3` | `general-v2-qwen3` |
+
+### 8.2 幻覺問題（最關鍵差異）
+
+| 位置 | Whisper | Qwen3-0.6B | Qwen3-1.7B | 實際內容 |
+|---|---|---|---|---|
+| 開場稱呼 | 各位**處長**各位**主管**大家好 | 各位**市場觀眾**大家好 | 各位**市場主管**大家好 | 處長/主管（確認）|
+| 報告者名 | 無人名 | **餘偉**（假） | **余文**（假） | 無特定人名需辨識 |
+| 組織名 | 「一部」（漏「技術」） | 「**新業務**」（假） | 「技術一部」（✅ 正確）|  技術一部 |
+| 角色縮寫 | TN UI、UKR、EU、JS（轉錯） | **青葉、尤卡、李俊**（假人名） | TYUKRT、UV（假縮寫） | 職位縮寫 |
+| 捏造地名 | 無 | 成都/杭州/蘇州/寧波/貴州（全假）| 無 | 無地名 |
+| 重複內容 | 結尾兩行重複 | 後段碎片化 | 後段明顯重複一段 | — |
+
+**幻覺嚴重程度：** Qwen3-0.6B > Qwen3-1.7B > Whisper-medium（無幻覺）
+
+### 8.3 聽不清楚時的行為
+
+這是核心差異：
+
+- **Whisper**：轉成語意不通的零碎詞（「我」「我也」「去進步在我們擁有的行動中心」）— 破碎但**可識別為有問題**
+- **Qwen3-0.6B/1.7B**：補全成聽起來通順但內容錯誤的句子 — **讀者無法判斷哪裡是假的**
+
+前者的零碎片段讀者一眼看出不對勁；後者的流暢假句子具有欺騙性。對逐字稿用途，前者代價更低。
+
+### 8.4 記憶體管理發現（2026-06-28 新增）
+
+**根本問題：** 16 GB unified memory 上，Ollama（qwen2.5:14b ~9 GB）和 Whisper-medium（~1.4 GB）無法同時 resident。Whisper 在推理時若 Ollama 佔用記憶體，會觸發 OOM crash，導致 SRT 輸出為空或垃圾。
+
+**解決方案（worker.py stage 轉換 hook）：**
+```
+preprocess 完成 → Ollama keep_alive=0 釋放
+transcribe 完成 → Whisper POST /unload（mx.metal.clear_cache + gc）
+summarize 完成  → Ollama keep_alive=0 釋放
+```
+
+**whisper/service.py 新增 `POST /unload`** — 清除 mlx_whisper 內部模型 cache + Metal GPU buffer pool。
+
+修正前 Whisper 頻繁 crash；修正後兩個 job（general-v2、general-v2-polish）均正常完成。
+
+### 8.5 mlx-community 可用模型現況（2026-06-28 查詢）
+
+Qwen3-ASR 官方只有 0.6B 和 1.7B 兩個尺寸，mlx-community 無更大版本：
+
+| 模型 | 量化 | 大小估算 | 備註 |
+|---|---|---|---|
+| Qwen3-ASR-0.6B-bf16 | 無 | 1.46 GB | ✅ 已測試 |
+| Qwen3-ASR-0.6B-{4,5,6,8}bit | 量化 | 0.5–1.2 GB | 更省記憶體，品質預期更低 |
+| Qwen3-ASR-1.7B-bf16 | 無 | 3.8 GB | ✅ 已測試 |
+| Qwen3-ASR-1.7B-{4,5,6,8}bit | 量化 | 1.0–2.5 GB | 未測試 |
+
+更大模型（7B+）目前不存在，需等官方釋出。
+
+### 8.6 整體評分（完整 pipeline 後）
+
+| 維度 | Whisper-medium | Qwen3-ASR 0.6B | Qwen3-ASR 1.7B |
+|---|---|---|---|
+| 幻覺風險 | ✅ 無 | ❌ 嚴重 | ⚠️ 中等 |
+| 時間戳精度 | ⭐⭐⭐ 段落級 | ⭐⭐⭐⭐⭐ 毫秒 | ⭐⭐⭐⭐⭐ 毫秒 |
+| 口語中文準確度 | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
+| 噪音前段 | ❌ 前54秒碎掉 | ❌ 嗯×20 | ⚠️ 句子級但有錯 |
+| correct_srt 可修性 | ⭐⭐⭐ 同音字 | ⭐ 無法修幻覺 | ⭐ 無法修幻覺 |
+| 記憶體需求 | 1.4 GB | 1.46 GB + 1.27 GB Aligner | 3.8 GB + 1.27 GB Aligner |
+| 生產穩定性 | ✅（修記憶體後） | ⚠️ | ⚠️ |
+
+### 8.7 現階段結論
+
+**生產使用：Whisper-medium（general-v2）**
+- 無幻覺是逐字稿的最低要求
+- 前54秒碎掉是缺點但不影響主要內容
+- 記憶體管理修正後穩定運作
+
+**Qwen3-ASR 暫不適合生產：**
+- 1.7B 幻覺率對會議逐字稿仍偏高
+- 幻覺問題在 1-2B 尺寸是結構性的，不是後處理能修的
+- 等待 7B+ 版本或更大模型釋出後重新評估
+
+---
+
+## 九、Whisper-large-v3-mlx 測試（2026-06-28）
+
+**結論：large-v3 在此音檔表現比 medium 更差。**
+
+### 9.1 測試條件
+
+- 同音檔（3 分鐘會議），完整 general-v2 pipeline
+- 記憶體正常（Ollama 先 unload），large-v3 ~3 GB 正常載入
+- 切換方式：`WHISPER_MODEL=mlx-community/whisper-large-v3-mlx bash scripts/ctl.sh restart whisper`
+
+### 9.2 前段問題：嚴重幻覺
+
+| 時間 | large-v3 | medium |
+|---|---|---|
+| 00:00 | 今天我會帶你們去看一看 | 我（碎片）|
+| 00:03 | 這個美麗的雲端城市 | 我也（碎片）|
+| 00:18 | 雲端技術的應用 | 我在（碎片）|
+| 00:29 | 企業上雲的最佳實踐 | 你好（碎片）|
+
+前 60 秒 large-v3 完全捏造了一段「雲端城市/雲端技術」演講，medium 只轉出明顯是垃圾的單字碎片。
+
+**這是 Whisper 大模型已知問題**：noise/silence 段落模型傾向「腦補」出聽起來合理的句子，越大的模型幻覺越有說服力，反而更危險。
+
+### 9.3 中後段也有退步
+
+- `[01:21]` 「他就去居住在我們永樂工業區」— 完全幻覺
+- `[01:50]` 「PMGYKRG的角色約束」— 縮寫更糟
+- `[02:29]` 「許多零錢需求的會議」— 「零錢」明顯錯誤
+- `[02:51]` 「VR的好處」— 憑空捏造
+
+### 9.4 結論
+
+| | Whisper-medium | Whisper-large-v3 |
+|---|---|---|
+| 前段噪音 | 輸出碎片（可識別為錯） | 幻覺成流暢假句子 ❌ |
+| 中段準確度 | ⭐⭐⭐ | ⭐⭐ |
+| 幻覺風險 | 低 | 高（比 medium 更危險）|
+
+**維持 Whisper-medium 為生產模型。** 切換指令留在 `WHISPER_MODEL` env var，未來有更好的音訊前處理（VAD 過濾靜音段）再重測 large-v3。
+
+---
+
+## 十、參考資料
 
 ### 套件 / 程式碼
 

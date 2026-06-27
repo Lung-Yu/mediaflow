@@ -147,7 +147,7 @@ do_start() {
             python3 -m venv venv-whisper
             venv-whisper/bin/pip install --quiet -r whisper/requirements.txt
         fi
-        WHISPER_MODEL=mlx-community/whisper-medium-mlx \
+        WHISPER_MODEL=${WHISPER_MODEL:-mlx-community/whisper-medium-mlx} \
         _start_bg whisper venv-whisper/bin/uvicorn whisper.service:app --host 0.0.0.0 --port 9001
     fi
 
