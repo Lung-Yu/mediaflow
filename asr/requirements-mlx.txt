@@ -5,3 +5,4 @@ scipy
 fastapi
 uvicorn[standard]
 python-multipart
+opencc-python-reimplemented

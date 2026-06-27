@@ -30,6 +30,15 @@ SR = 16000
 
 _model = None
 _model_loaded = False
+_cc = None  # OpenCC converter, lazy-loaded
+
+
+def _get_cc():
+    global _cc
+    if _cc is None:
+        import opencc
+        _cc = opencc.OpenCC("s2twp")  # Simplified → Traditional Taiwan
+    return _cc
 
 
 def _get_model():
@@ -68,7 +77,7 @@ def _do_transcribe(wav_bytes: bytes, language: str) -> dict:
         start_sec = round(offset / SR, 3)
         end_sec = round(min((offset + chunk_samples) / SR, total / SR), 3)
         result = model.transcribe(chunk, language=language)
-        text = result.text.strip()
+        text = _get_cc().convert(result.text).strip()
         if text:
             segments.append({
                 "id": seg_id,
