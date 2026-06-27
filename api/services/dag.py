@@ -119,9 +119,16 @@ async def recover_stuck_jobs(pool: asyncpg.Pool, redis) -> None:
                     job["id"], job["status"], retry_count)
         if retry_count < _MAX_RETRIES:
             flow = await get_dag_flow(pool, job.get("dag_flow_id"))
-            # Always resume from first stage: worker ctx only has input_path, not
-            # intermediate outputs (audio_path, srt_path) that mid-pipeline stages need.
-            resume = flow["stage_plan"][0]["stage"]
+            stage_ids = [s["stage"] for s in flow["stage_plan"]]
+            current = job.get("current_stage")
+            if current and current in stage_ids:
+                next_idx = stage_ids.index(current) + 1
+                # ponytail: next-stage resume; edge case: if transcribe failed explicitly then
+                # times out again, current_stage="transcribe" and we'd skip it — acceptable
+                # tradeoff vs. adding a resume_from_stage DB column.
+                resume = stage_ids[next_idx] if next_idx < len(stage_ids) else stage_ids[0]
+            else:
+                resume = stage_ids[0]
             await insert_event(pool, job["id"], resume, "failed",
                                retry_attempt=retry_count,
                                error_msg="watchdog: job timeout, worker did not respond")
