@@ -1,0 +1,7 @@
+qwen3-asr-mlx
+soundfile
+numpy
+scipy
+fastapi
+uvicorn[standard]
+python-multipart

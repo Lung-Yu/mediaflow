@@ -174,13 +174,13 @@ do_start() {
     fi
 
     if [[ "$svc" == "asr" ]]; then
-        _head "Starting asr (Qwen2-Audio)"
-        if [[ ! -d venv-asr ]]; then
-            _info "Creating venv-asr (first run downloads ~14 GB model)..."
-            python3 -m venv venv-asr
-            venv-asr/bin/pip install --quiet -r asr/requirements.txt
+        _head "Starting asr (Qwen3-ASR MLX)"
+        if [[ ! -d venv-asr-mlx ]]; then
+            _info "Creating venv-asr-mlx (first run downloads ~1.7 GB model)..."
+            python3.11 -m venv venv-asr-mlx
+            venv-asr-mlx/bin/pip install --quiet -r asr/requirements-mlx.txt
         fi
-        _start_bg asr env PYTORCH_ENABLE_MPS_FALLBACK=1 venv-asr/bin/uvicorn asr.service:app --host 0.0.0.0 --port 9004
+        _start_bg asr venv-asr-mlx/bin/uvicorn asr.service:app --host 0.0.0.0 --port 9004
     fi
 }
 
