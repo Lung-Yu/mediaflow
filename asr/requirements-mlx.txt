@@ -1,4 +1,4 @@
-qwen3-asr-mlx
+mlx-qwen3-asr @ git+https://github.com/moona3k/mlx-qwen3-asr
 soundfile
 numpy
 scipy
