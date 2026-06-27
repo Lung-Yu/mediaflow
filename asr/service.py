@@ -110,7 +110,7 @@ def _words_to_segments(words: list[dict]) -> list[dict]:
 def _do_transcribe(wav_bytes: bytes, language: str, context: str = "") -> dict:
     audio = _decode(wav_bytes)
     result = _get_session().transcribe(audio, language=language, forced_aligner=_get_aligner(),
-                                       context=context)
+                                       return_timestamps=True, context=context)
     words = result.segments or []
     return {"segments": _words_to_segments(words)}
 
