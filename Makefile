@@ -3,7 +3,8 @@
         stop-docker stop-whisper stop-watcher stop-worker stop-diarize \
         restart-all restart-docker restart-whisper restart-watcher restart-worker restart-api restart-web \
         logs logs-api logs-web logs-redis logs-watcher logs-whisper logs-worker logs-diarize \
-        rebuild rebuild-api rebuild-web
+        rebuild rebuild-api rebuild-web \
+        start-asr stop-asr restart-asr logs-asr
 
 CTL := scripts/ctl.sh
 
@@ -25,6 +26,7 @@ help:
 	@echo "    make start-watcher    Pipeline watcher (watches 1_input/)"
 	@echo "    make start-worker     Pipeline worker (processes jobs from MQ)"
 	@echo "    make start-diarize    Speaker diarization service :9003 (optional)"
+	@echo "    make start-asr        Qwen2-Audio ASR service :9002 (quality alternative to Whisper)"
 	@echo ""
 	@echo "    make stop-docker / stop-whisper / stop-watcher / stop-worker / stop-diarize"
 	@echo ""
@@ -80,6 +82,9 @@ start-worker:
 start-diarize:
 	$(CTL) start diarize
 
+start-asr:
+	$(CTL) start asr
+
 # ── Individual stop ───────────────────────────────────────────────────────────
 
 stop-docker:
@@ -96,6 +101,9 @@ stop-worker:
 
 stop-diarize:
 	$(CTL) stop diarize
+
+stop-asr:
+	$(CTL) stop asr
 
 # ── Restart individual ────────────────────────────────────────────────────────
 
@@ -119,6 +127,10 @@ restart-watcher:
 
 restart-worker:
 	$(CTL) restart worker
+
+restart-asr:
+	$(CTL) stop asr
+	$(CTL) start asr
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
@@ -145,6 +157,9 @@ logs-worker:
 
 logs-diarize:
 	$(CTL) logs diarize
+
+logs-asr:
+	$(CTL) logs asr
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 

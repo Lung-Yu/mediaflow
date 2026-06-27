@@ -115,6 +115,9 @@ do_status() {
     _is_running "diarize" \
         && _ok  "diarize  pid=$(cat "$(_pid_file diarize)")" \
         || _info "diarize  not running (optional)"
+    _is_running "asr" \
+        && _ok  "asr      pid=$(cat "$(_pid_file asr)")" \
+        || _info "asr      not running (optional — alternative to whisper)"
 
     _head "Health"
     _http_ok http://localhost:8080/health            && _ok "api    :8080" || _fail "api    :8080"
@@ -122,6 +125,7 @@ do_status() {
     _http_ok http://localhost:9001/health            && _ok "whisper:9001" || _fail "whisper:9001"
     _http_ok http://localhost:9000/minio/health/live && _ok "minio  :9000" || _fail "minio  :9000"
     _http_ok http://localhost:9003/health            && _ok "diarize:9003" || _info "diarize:9003 (optional)"
+    _http_ok http://localhost:9002/health            && _ok "asr    :9002" || _info "asr    :9002 (optional)"
     _http_ok http://localhost:11434/api/tags         && _ok "ollama :11434" || _fail "ollama :11434 (ollama serve)"
 }
 
@@ -168,6 +172,16 @@ do_start() {
         fi
         _start_bg diarize venv-diarize/bin/uvicorn diarize.service:app --host 0.0.0.0 --port 9003
     fi
+
+    if [[ "$svc" == "asr" ]]; then
+        _head "Starting asr (Qwen2-Audio)"
+        if [[ ! -d venv-asr ]]; then
+            _info "Creating venv-asr (first run downloads ~14 GB model)..."
+            python3 -m venv venv-asr
+            venv-asr/bin/pip install --quiet -r asr/requirements.txt
+        fi
+        _start_bg asr venv-asr/bin/uvicorn asr.service:app --host 0.0.0.0 --port 9002
+    fi
 }
 
 do_stop() {
@@ -176,6 +190,7 @@ do_stop() {
     if [[ "$svc" == "all" || "$svc" == "worker"  ]]; then _stop_proc worker;  fi
     if [[ "$svc" == "all" || "$svc" == "whisper" ]]; then _stop_proc whisper; fi
     if [[ "$svc" == "all" || "$svc" == "diarize" ]]; then _stop_proc diarize; fi
+    if [[ "$svc" == "asr" ]]; then _stop_proc asr; fi
     if [[ "$svc" == "all" || "$svc" == "docker"  ]]; then
         _head "Stopping Docker"
         $COMPOSE down && _ok "Docker stopped"
@@ -228,7 +243,7 @@ do_logs() {
     local svc="${1:-api}"
     case "$svc" in
         api|web|redis)                    $COMPOSE logs -f "$svc" ;;
-        watcher|worker|whisper|diarize)   tail -f "$LOG_DIR/$svc.log" ;;
+        watcher|worker|whisper|diarize|asr)   tail -f "$LOG_DIR/$svc.log" ;;
         *) _fail "unknown service: $svc"; exit 1 ;;
     esac
 }

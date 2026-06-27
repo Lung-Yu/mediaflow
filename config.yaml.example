@@ -75,7 +75,7 @@ diarization:
   match_threshold: 0.70            # cosine similarity threshold; lower = more permissive
 
 whisper:
-  service_url: http://localhost:9001
+  service_url: http://localhost:9001   # switch to http://localhost:9002 to use Qwen2-Audio (make start-asr)
   language: zh
 
   # beam_size: larger = more accurate, slower. Default 5. Try 10 for maximum accuracy.
