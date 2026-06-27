@@ -127,7 +127,11 @@ Qwen3-ForcedAligner.align(音訊, 文字)
 
 **唯一剩下要做的：** word → sentence 合句邏輯（按標點斷句，限制每段最大字數）
 
-**已知限制：** Qwen3-ForcedAligner-0.6B 有 5 分鐘 chunk 限制，以 5 分鐘為單位處理即可。
+**Aligner chunk 限制：** Qwen3-ForcedAligner-0.6B 每次呼叫最多 5 分鐘（300s），這是硬限制。
+因此切塊策略以 Aligner 的上限為準，固定 300s。ASR 不需要這麼小的塊（可吃任意長度），
+只是配合 Aligner 同樣切成 300s，讓音訊和文字自然對應，無需額外對齊。
+
+不使用 overlap：Aligner 給 word-level 時間戳，不存在 chunk 邊界的截斷問題，也不需去重。
 
 ---
 
@@ -135,9 +139,16 @@ Qwen3-ForcedAligner.align(音訊, 文字)
 
 ```
 短期：繼續用 Whisper-medium（port 9001）作為生產 ASR
-長期：Qwen3-ASR + ForcedAligner，等以下條件：
-  (a) qwen3-asr-mlx 整合 Aligner API（或手動整合）
-  (b) 確認 1.7B 模型品質是否值得 3.8 GB 記憶體
+實驗：Qwen3-ASR + ForcedAligner on port 9004
+  套件：pip install git+https://github.com/moona3k/mlx-qwen3-asr  (v0.3.5)
+  ASR 模型：mlx-community/Qwen3-ASR-0.6B-bf16（已下載）
+  Aligner 模型：mlx-community/Qwen3-ForcedAligner-0.6B-8bit（1.27 GB，待下載）
+  RAM 估算：~2.8 GB（兩個模型同時在記憶體）
+
+待確認後採用：
+  (a) forced_aligner.py v0.3.5 API 驗證
+  (b) 端對端輸出 SRT 品質 vs Whisper-medium
+  (c) 確認 1.7B 模型品質是否值得 3.8 GB 記憶體
 ```
 
 ---
@@ -230,8 +241,35 @@ result = aligner.align(
 用 O(n log n) LIS-based timestamp correction，比 PyTorch 快 2.6x。
 但 v0.1.1 尚未在 pip 套件中暴露 Aligner API。
 
-### 待釐清
+### 已釐清（2026-06-28 實裝確認）
 
-- [ ] `qwen-asr` 套件的 Aligner 是否為 PyTorch-based？（需確認是否引入 PyTorch 依賴）
-- [ ] `mlx-community/Qwen3-ForcedAligner-0.6B-8bit` + `qwen-asr` 是否能避免 8-bit 格式錯誤？
-- [ ] `moona3k/mlx-qwen3-asr` 的 MLX native Aligner 何時會出現在 pip 版本？
+**`qwen-asr` = PyTorch-only（確認排除）**
+
+```
+qwen-asr           0.0.6
+torch              2.12.1
+transformers       4.57.6
+accelerate         1.12.0
+```
+
+`Qwen3ForcedAligner.from_pretrained` 內部呼叫 `AutoModel.from_pretrained`，標準 HuggingFace Transformers 路徑，dtype 預設 `torch.bfloat16`。完全沒有 MLX。
+
+**`moona3k/mlx-qwen3-asr` GitHub v0.3.5 已有 MLX Aligner**
+
+PyPI 停在 0.1.1，GitHub main 已到 v0.3.5（2026-05-16），包含 `forced_aligner.py`（439 行）。
+安裝方式：`pip install git+https://github.com/moona3k/mlx-qwen3-asr`
+
+效能：2.64x 快於官方 PyTorch 版，MAE 5.69ms，100% 文字符合率，O(n log n) LIS 演算法。
+
+**Aligner 模型 8-bit 格式安全**
+
+`mlx-community/Qwen3-ForcedAligner-0.6B-8bit` 使用 affine 量化（group_size: 64, bits: 8），
+與造成錯誤的 `Qwen3-ASR-1.7B-8bit`（biases/scales 格式）**不同**。也有 bf16 版（1.84 GB）。
+
+### 套件選擇決策
+
+| 套件 | Backend | ASR | Aligner | 結論 |
+|--|--|--|--|--|
+| `qwen-asr` 官方 | PyTorch | ✅ | ✅ | ❌ 帶入 MPS 風險 |
+| `qwen3-asr-mlx` PyPI 0.1.1 | MLX | ✅ | ❌ | ⚠️ 落後 4 個版本 |
+| `moona3k/mlx-qwen3-asr` GitHub v0.3.5 | MLX | ✅ | ✅ | ✅ 採用 |
