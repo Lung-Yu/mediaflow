@@ -273,3 +273,26 @@ PyPI 停在 0.1.1，GitHub main 已到 v0.3.5（2026-05-16），包含 `forced_a
 | `qwen-asr` 官方 | PyTorch | ✅ | ✅ | ❌ 帶入 MPS 風險 |
 | `qwen3-asr-mlx` PyPI 0.1.1 | MLX | ✅ | ❌ | ⚠️ 落後 4 個版本 |
 | `moona3k/mlx-qwen3-asr` GitHub v0.3.5 | MLX | ✅ | ✅ | ✅ 採用 |
+
+---
+
+## 七、參考資料
+
+### 套件 / 程式碼
+
+- [moona3k/mlx-qwen3-asr](https://github.com/moona3k/mlx-qwen3-asr) — MLX 社群實作，v0.3.5 含 `forced_aligner.py`
+- [QwenLM/Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) — 官方 repo（PyTorch），含 `Qwen3ForcedAligner` 參考實作
+- [qwen3-asr-mlx on PyPI](https://pypi.org/project/qwen3-asr-mlx/) — 停在 0.1.1，無 Aligner
+- [qwen-asr on PyPI](https://pypi.org/project/qwen-asr/) — 官方套件 v0.0.6，PyTorch-only
+
+### 模型（HuggingFace）
+
+- [mlx-community/Qwen3-ASR-0.6B-bf16](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-bf16) — ASR 0.6B，1.46 GB，已下載
+- [mlx-community/Qwen3-ASR-1.7B-bf16](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-bf16) — ASR 1.7B，3.80 GB，待評估
+- [mlx-community/Qwen3-ForcedAligner-0.6B-8bit](https://huggingface.co/mlx-community/Qwen3-ForcedAligner-0.6B-8bit) — Aligner 8-bit affine，1.27 GB
+- [mlx-community/Qwen3-ForcedAligner-0.6B-bf16](https://huggingface.co/mlx-community/Qwen3-ForcedAligner-0.6B-bf16) — Aligner bf16，1.84 GB
+- [mlx-community/whisper-medium-mlx](https://huggingface.co/mlx-community/whisper-medium-mlx) — 現行生產 ASR
+
+### 已知 PyTorch + MPS 問題
+
+- [llama.cpp issue #13759](https://github.com/ggerganov/llama.cpp/issues/13759) — Qwen2-Audio GGUF "poor results" 記錄
