@@ -107,9 +107,10 @@ def _words_to_segments(words: list[dict]) -> list[dict]:
     return segments
 
 
-def _do_transcribe(wav_bytes: bytes, language: str) -> dict:
+def _do_transcribe(wav_bytes: bytes, language: str, context: str = "") -> dict:
     audio = _decode(wav_bytes)
-    result = _get_session().transcribe(audio, language=language, forced_aligner=_get_aligner())
+    result = _get_session().transcribe(audio, language=language, forced_aligner=_get_aligner(),
+                                       context=context)
     words = result.segments or []
     return {"segments": _words_to_segments(words)}
 
@@ -142,7 +143,7 @@ async def transcribe_segments_endpoint(
     try:
         data = await audio.read()
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _do_transcribe, data, language)
+        result = await loop.run_in_executor(None, _do_transcribe, data, language, initial_prompt)
         return JSONResponse(result)
     except Exception as exc:
         print(f"[asr/segments] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)

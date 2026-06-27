@@ -237,8 +237,10 @@ def _segments_to_srt(segments: list[dict]) -> str:
 
 def _call_whisper(audio_path: Path, cfg: dict, initial_prompt: str = "") -> list[dict]:
     """POST one audio file to Whisper /transcribe_segments; return raw segments."""
-    service_url = cfg["whisper"]["service_url"].rstrip("/")
-    language = cfg["whisper"].get("language", "zh")
+    stage_cfgs = cfg.get("pipeline", {}).get("stages", [])
+    tr_cfg = next((s for s in stage_cfgs if s.get("id") == "transcribe"), {})
+    service_url = (tr_cfg.get("service_url") or cfg["whisper"]["service_url"]).rstrip("/")
+    language = tr_cfg.get("language") or cfg["whisper"].get("language", "zh")
     prompt = initial_prompt or cfg["whisper"].get("initial_prompt", "") or ""
 
     params: dict = {
