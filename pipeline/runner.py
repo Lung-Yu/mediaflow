@@ -92,6 +92,14 @@ def _adapt_correct_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return ctx, {}
 
 
+def _adapt_polish_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    srt_path = ctx["srt_path"]
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found for polish: {srt_path}")
+    stages.polish_srt(ctx["stem"], srt_path, cfg)
+    return ctx, {}
+
+
 def _adapt_diarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     audio_path = ctx["audio_path"]
@@ -126,6 +134,7 @@ STAGE_RUNNERS: dict[str, Callable] = {
     "transcribe":      _adapt_transcribe,
     "verify_segments": _adapt_verify_segments,
     "correct_srt":     _adapt_correct_srt,
+    "polish_srt":      _adapt_polish_srt,
     "diarize":         _adapt_diarize,
     "summarize":       _adapt_summarize,
     "detect_chapters": _adapt_detect_chapters,

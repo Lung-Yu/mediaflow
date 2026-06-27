@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-ASR_MODEL = os.environ.get("ASR_MODEL", "mlx-community/Qwen3-ASR-0.6B-bf16")
+ASR_MODEL = os.environ.get("ASR_MODEL", "mlx-community/Qwen3-ASR-1.7B-bf16")
 ALIGNER_MODEL = os.environ.get("ALIGNER_MODEL", "mlx-community/Qwen3-ForcedAligner-0.6B-8bit")
 SR = 16000
 HARD_STOPS = frozenset("。！？")

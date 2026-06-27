@@ -623,6 +623,46 @@ def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     return srt_path
 
 
+def polish_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
+    """Full-document Ollama pass for Chinese/English consistency. Never raises."""
+    model = cfg["ollama"].get("model", "qwen2.5:7b")
+    srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = _parse_srt_blocks(srt_content)
+    if not blocks:
+        return srt_path
+
+    CHUNK = 200  # ponytail: fits most recordings in one LLM call; split if >200 segs
+    corrected_blocks: list[dict] = []
+
+    for i in range(0, len(blocks), CHUNK):
+        chunk = blocks[i:i + CHUNK]
+        lines_in = "\n".join(f"{j}|{b['text']}" for j, b in enumerate(chunk))
+        raw = _ollama_chat(model, PROMPTS["polish_srt"]["base"] + "\n" + lines_in)
+
+        corrected_map: dict[int, str] = {}
+        for line in raw.splitlines():
+            if "|" in line:
+                idx_str, _, text = line.partition("|")
+                try:
+                    corrected_map[int(idx_str.strip())] = text.strip()
+                except ValueError:
+                    pass
+
+        for j, block in enumerate(chunk):
+            corrected_blocks.append({
+                "time": block["time"],
+                "text": corrected_map.get(j, block["text"]),
+            })
+
+    lines = []
+    for i, block in enumerate(corrected_blocks, start=1):
+        lines.append(f"{i}\n{block['time']}\n{block['text']}\n")
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+
+    log.info("polish_srt done: %s (%d blocks)", stem, len(corrected_blocks))
+    return srt_path
+
+
 def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
     """Generate structured summary from SRT via Ollama.
 
