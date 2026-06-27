@@ -32,6 +32,7 @@ def _model_loaded() -> bool:
         return False
 
 
+@pytest.mark.skipif(not _model_loaded(), reason="model not downloaded — skipping transcription format tests")
 def test_health():
     resp = httpx.get("http://localhost:9002/health", timeout=10)
     assert resp.status_code == 200

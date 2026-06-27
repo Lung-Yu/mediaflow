@@ -1,5 +1,6 @@
 # Python
 venv/
+venv-asr/
 venv-diarize/
 venv-whisper/
 __pycache__/
