@@ -105,7 +105,7 @@ async def count_active_jobs(pool: asyncpg.Pool) -> int:
 async def get_dag_flow(pool: asyncpg.Pool, flow_id: Optional[str]) -> dict:
     if flow_id:
         row = await pool.fetchrow(
-            "SELECT * FROM dag_flows WHERE id = $1 AND deprecated = false", flow_id
+            "SELECT * FROM dag_flows WHERE id = $1", flow_id
         )
     else:
         row = await pool.fetchrow(
