@@ -1,7 +1,7 @@
 """Verify /transcribe_segments returns the exact format stages.py expects.
 
-Requires the asr service running on :9002:
-  uvicorn asr.service:app --port 9002
+Requires the asr service running on :9004:
+  uvicorn asr.service:app --port 9004
 
 Tests that require a loaded model are skipped when the model is not downloaded.
 """
@@ -26,7 +26,7 @@ def _make_silence_wav(duration_sec: float = 2.0, sr: int = 16000) -> bytes:
 
 def _model_loaded() -> bool:
     try:
-        resp = httpx.get("http://localhost:9002/health", timeout=5)
+        resp = httpx.get("http://localhost:9004/health", timeout=5)
         return resp.status_code == 200 and resp.json().get("model_loaded", False)
     except Exception:
         return False
@@ -34,7 +34,7 @@ def _model_loaded() -> bool:
 
 @pytest.mark.skipif(not _model_loaded(), reason="model not downloaded — skipping transcription format tests")
 def test_health():
-    resp = httpx.get("http://localhost:9002/health", timeout=10)
+    resp = httpx.get("http://localhost:9004/health", timeout=10)
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
@@ -46,7 +46,7 @@ def test_health():
 def test_transcribe_segments_format():
     wav = _make_silence_wav()
     resp = httpx.post(
-        "http://localhost:9002/transcribe_segments",
+        "http://localhost:9004/transcribe_segments",
         files={"audio": ("test.wav", wav, "audio/wav")},
         params={"language": "zh"},
         timeout=120,
@@ -67,7 +67,7 @@ def test_transcribe_segments_format():
 def test_transcribe_large_format():
     wav = _make_silence_wav()
     resp = httpx.post(
-        "http://localhost:9002/transcribe_large",
+        "http://localhost:9004/transcribe_large",
         files={"audio": ("test.wav", wav, "audio/wav")},
         params={"language": "zh"},
         timeout=120,

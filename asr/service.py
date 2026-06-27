@@ -1,7 +1,7 @@
 """Qwen2-Audio-7B-Instruct ASR HTTP service — Apple Silicon (MPS + CPU via device_map=auto).
 
 Drop-in replacement for whisper/service.py — exposes identical endpoints.
-Switch by setting whisper.service_url: http://localhost:9002 in config.yaml.
+Switch by setting whisper.service_url: http://localhost:9004 in config.yaml.
 
 Endpoints:
   GET  /health               — liveness + model-loaded flag
@@ -9,9 +9,11 @@ Endpoints:
   POST /transcribe_large     — short clip → {text: "..."}
 
 Usage:
-  ASR_MODEL=Qwen/Qwen2-Audio-7B-Instruct uvicorn asr.service:app --host 0.0.0.0 --port 9002
+  ASR_MODEL=Qwen/Qwen2-Audio-7B-Instruct uvicorn asr.service:app --host 0.0.0.0 --port 9004
 """
 import asyncio
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -27,6 +29,15 @@ app = FastAPI()
 
 MODEL = os.environ.get("ASR_MODEL", "Qwen/Qwen2-Audio-7B-Instruct")
 CHUNK_SEC = int(os.environ.get("ASR_CHUNK_SEC", "30"))
+BATCH_SIZE = int(os.environ.get("ASR_BATCH_SIZE", "1"))  # >1 needs enough RAM (32GB+)
+_CKPT_DIR = Path(os.environ.get("ASR_CHECKPOINT_DIR", "/tmp/asr_checkpoints"))
+_CKPT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _ckpt_path(wav_bytes: bytes) -> Path:
+    # ponytail: first 64 KB is enough to distinguish files, avoids hashing 300 MB
+    h = hashlib.md5(wav_bytes[:65536]).hexdigest()
+    return _CKPT_DIR / f"{h}.json"
 
 _model = None
 _processor = None
@@ -57,9 +68,9 @@ def _resample(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
     return resample_poly(audio, dst_sr // g, src_sr // g).astype(np.float32)
 
 
-def _transcribe_chunk(
-    audio: np.ndarray, sr: int, language: str, prompt: str, model, processor
-) -> str:
+def _transcribe_batch(
+    audios: list, sr: int, language: str, prompt: str, model, processor
+) -> list:
     import torch
 
     lang_hint = "繁體中文" if language == "zh" else language
@@ -71,8 +82,8 @@ def _transcribe_chunk(
     ]}]
     text = processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
     inputs = processor(
-        text=text,
-        audios=[audio],
+        text=[text] * len(audios),
+        audios=audios,
         sampling_rate=sr,
         return_tensors="pt",
         padding=True,
@@ -82,8 +93,9 @@ def _transcribe_chunk(
     with torch.no_grad():
         generated = model.generate(**inputs, max_new_tokens=2000, do_sample=False)
 
+    # left-padding: all items generate starting at the same offset
     generated = generated[:, inputs["input_ids"].size(1):]
-    return processor.decode(generated[0], skip_special_tokens=True).strip()
+    return [processor.decode(g, skip_special_tokens=True).strip() for g in generated]
 
 
 def _do_transcribe(wav_bytes: bytes, language: str, prompt: str) -> dict:
@@ -94,6 +106,8 @@ def _do_transcribe(wav_bytes: bytes, language: str, prompt: str) -> dict:
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(wav_bytes)
         wav_path = Path(tmp.name)
+
+    ckpt = _ckpt_path(wav_bytes)
 
     try:
         audio, file_sr = sf.read(str(wav_path))
@@ -106,29 +120,50 @@ def _do_transcribe(wav_bytes: bytes, language: str, prompt: str) -> dict:
 
         chunk_samples = CHUNK_SEC * target_sr
         total = len(audio)
+        total_chunks = (total + chunk_samples - 1) // chunk_samples
+
+        # Resume from checkpoint if available
         segments = []
         seg_id = 0
         offset = 0
+        if ckpt.exists():
+            saved = json.loads(ckpt.read_text())
+            segments = saved["segments"]
+            seg_id = saved["next_seg_id"]
+            offset = saved["next_offset"]
+            print(f"[asr] resumed from checkpoint: chunk {seg_id + 1}/{total_chunks} offset={offset}", flush=True)
 
         while offset < total:
-            chunk = audio[offset: offset + chunk_samples]
-            start_sec = round(offset / target_sr, 3)
-            end_sec = round(min((offset + chunk_samples) / target_sr, total / target_sr), 3)
+            batch_chunks, batch_meta = [], []
+            for _ in range(BATCH_SIZE):
+                if offset >= total:
+                    break
+                chunk = audio[offset: offset + chunk_samples]
+                start_sec = round(offset / target_sr, 3)
+                end_sec = round(min((offset + chunk_samples) / target_sr, total / target_sr), 3)
+                batch_chunks.append(chunk)
+                batch_meta.append((start_sec, end_sec))
+                offset += chunk_samples
 
-            text = _transcribe_chunk(chunk, target_sr, language, prompt, model, processor)
-            if text:
-                segments.append({
-                    "id": seg_id,
-                    "start": start_sec,
-                    "end": end_sec,
-                    "text": text,
-                    # Qwen2-Audio exposes no logprobs; 0.0 disables verify_segments flagging
-                    "avg_logprob": 0.0,
-                    "no_speech_prob": 0.0,
-                })
-                seg_id += 1
-            offset += chunk_samples
+            print(f"[asr] chunks {seg_id + 1}-{seg_id + len(batch_chunks)}/{total_chunks} batch={len(batch_chunks)}", flush=True)
+            texts = _transcribe_batch(batch_chunks, target_sr, language, prompt, model, processor)
 
+            for (start_sec, end_sec), text in zip(batch_meta, texts):
+                if text:
+                    segments.append({
+                        "id": seg_id,
+                        "start": start_sec,
+                        "end": end_sec,
+                        "text": text,
+                        # ponytail: Qwen2-Audio exposes no logprobs; 0.0 disables verify_segments flagging
+                        "avg_logprob": 0.0,
+                        "no_speech_prob": 0.0,
+                    })
+                    seg_id += 1
+
+            ckpt.write_text(json.dumps({"segments": segments, "next_seg_id": seg_id, "next_offset": offset}))
+
+        ckpt.unlink(missing_ok=True)
         return {"segments": segments}
     finally:
         wav_path.unlink(missing_ok=True)

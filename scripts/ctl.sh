@@ -125,7 +125,7 @@ do_status() {
     _http_ok http://localhost:9001/health            && _ok "whisper:9001" || _fail "whisper:9001"
     _http_ok http://localhost:9000/minio/health/live && _ok "minio  :9000" || _fail "minio  :9000"
     _http_ok http://localhost:9003/health            && _ok "diarize:9003" || _info "diarize:9003 (optional)"
-    _http_ok http://localhost:9002/health            && _ok "asr    :9002" || _info "asr    :9002 (optional)"
+    _http_ok http://localhost:9004/health            && _ok "asr    :9004" || _info "asr    :9004 (optional)"
     _http_ok http://localhost:11434/api/tags         && _ok "ollama :11434" || _fail "ollama :11434 (ollama serve)"
 }
 
@@ -180,7 +180,7 @@ do_start() {
             python3 -m venv venv-asr
             venv-asr/bin/pip install --quiet -r asr/requirements.txt
         fi
-        _start_bg asr venv-asr/bin/uvicorn asr.service:app --host 0.0.0.0 --port 9002
+        _start_bg asr env PYTORCH_ENABLE_MPS_FALLBACK=1 venv-asr/bin/uvicorn asr.service:app --host 0.0.0.0 --port 9004
     fi
 }
 

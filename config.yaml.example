@@ -75,8 +75,13 @@ diarization:
   match_threshold: 0.70            # cosine similarity threshold; lower = more permissive
 
 whisper:
-  service_url: http://localhost:9001   # switch to http://localhost:9002 to use Qwen2-Audio (make start-asr)
+  service_url: http://localhost:9001   # switch to http://localhost:9004 to use Qwen2-Audio (make start-asr)
   language: zh
+
+# Qwen2-Audio (asr/service.py) tuning — set via env vars before starting:
+#   ASR_CHUNK_SEC=30      seconds per audio chunk (longer = more context, more RAM)
+#   ASR_BATCH_SIZE=1      chunks per inference pass; >1 speeds up on 32GB+ machines
+#   ASR_MODEL=Qwen/...    override model (e.g. a local INT4 quantized variant)
 
   # beam_size: larger = more accurate, slower. Default 5. Try 10 for maximum accuracy.
   beam_size: 5
