@@ -58,10 +58,10 @@ async def test_handle_stage_callback_last_stage_completes_job():
     redis = _make_redis()
     with patch("api.services.dag.get_dag_flow", AsyncMock(return_value=FLOW)), \
          patch("api.services.dag.insert_event", AsyncMock()), \
-         patch("api.services.dag.upsert_job", AsyncMock()) as mock_upsert:
+         patch("api.services.dag.update_job", AsyncMock()) as mock_update:
         await handle_stage_callback(pool, redis, "job123", "summarize", "success", 0, None)
-    mock_upsert.assert_called()
-    last_call = mock_upsert.call_args_list[-1]
+    mock_update.assert_called()
+    last_call = mock_update.call_args_list[-1]
     assert last_call[1]["status"] == "completed"
 
 
@@ -98,9 +98,9 @@ async def test_handle_stage_callback_failure_final_fail():
     redis = _make_redis()
     with patch("api.services.dag.get_dag_flow", AsyncMock(return_value=FLOW)), \
          patch("api.services.dag.insert_event", AsyncMock()), \
-         patch("api.services.dag.upsert_job", AsyncMock()) as mock_upsert, \
+         patch("api.services.dag.update_job", AsyncMock()) as mock_update, \
          patch("api.services.dag._enqueue_after_backoff") as mock_backoff:
         await handle_stage_callback(pool, redis, "job123", "transcribe", "failed", 3, "OOM")
     mock_backoff.assert_not_called()
-    statuses = [c[1]["status"] for c in mock_upsert.call_args_list if "status" in c[1]]
+    statuses = [c[1]["status"] for c in mock_update.call_args_list if "status" in c[1]]
     assert "failed" in statuses
