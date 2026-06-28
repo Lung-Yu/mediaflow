@@ -1,0 +1,36 @@
+mediaflow_jobs:
+  query: |
+    SELECT
+      status,
+      COUNT(*) AS count
+    FROM jobs
+    GROUP BY status
+  metrics:
+    - status:
+        usage: LABEL
+        description: Job status
+    - count:
+        usage: GAUGE
+        description: Number of jobs per status
+
+mediaflow_jobs_completed_24h:
+  query: |
+    SELECT COUNT(*) AS count
+    FROM jobs
+    WHERE status = 'completed'
+      AND completed_at > extract(epoch from now()) - 86400
+  metrics:
+    - count:
+        usage: GAUGE
+        description: Jobs completed in last 24h
+
+mediaflow_jobs_failed_24h:
+  query: |
+    SELECT COUNT(*) AS count
+    FROM jobs
+    WHERE status = 'failed'
+      AND completed_at > extract(epoch from now()) - 86400
+  metrics:
+    - count:
+        usage: GAUGE
+        description: Jobs failed in last 24h

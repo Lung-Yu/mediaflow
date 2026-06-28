@@ -180,6 +180,9 @@ services:
     restart: unless-stopped
     environment:
       DATA_SOURCE_NAME: postgresql://mediaflow:${POSTGRES_PASSWORD:-changeme}@postgres:5432/mediaflow?sslmode=disable
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/pg-queries.yml
+    volumes:
+      - ./monitoring/pg-queries.yml:/etc/pg-queries.yml:ro
     ports:
       - "9187:9187"
     depends_on:
