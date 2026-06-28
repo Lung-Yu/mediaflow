@@ -96,7 +96,7 @@ def _adapt_correct_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     if not srt_path.exists():
         raise FileNotFoundError(f"SRT not found for correction: {srt_path}")
-    stages.correct_srt(ctx["stem"], srt_path, cfg)
+    stages.correct_srt(ctx["stem"], srt_path, cfg, provider=ctx.get("llm_provider"))
     return ctx, {}
 
 
@@ -104,7 +104,7 @@ def _adapt_polish_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     if not srt_path.exists():
         raise FileNotFoundError(f"SRT not found for polish: {srt_path}")
-    stages.polish_srt(ctx["stem"], srt_path, cfg)
+    stages.polish_srt(ctx["stem"], srt_path, cfg, provider=ctx.get("llm_provider"))
     return ctx, {}
 
 
@@ -124,7 +124,8 @@ def _adapt_summarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     if not srt_path.exists():
         raise FileNotFoundError(f"SRT not found: {srt_path}")
-    md_path = stages.summarize(ctx["stem"], srt_path, ctx["output_dir"], cfg)
+    md_path = stages.summarize(ctx["stem"], srt_path, ctx["output_dir"], cfg,
+                               provider=ctx.get("llm_provider"))
     return {**ctx, "summary_md": md_path}, {}
 
 
@@ -132,7 +133,8 @@ def _adapt_detect_chapters(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     if not srt_path.exists():
         raise FileNotFoundError(f"SRT not found: {srt_path}")
-    chapters_path = stages.detect_chapters(ctx["stem"], srt_path, ctx["output_dir"], cfg)
+    chapters_path = stages.detect_chapters(ctx["stem"], srt_path, ctx["output_dir"], cfg,
+                                           provider=ctx.get("llm_provider"))
     return {**ctx, "chapters_path": chapters_path}, {}
 
 

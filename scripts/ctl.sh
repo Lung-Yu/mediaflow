@@ -130,7 +130,7 @@ do_status() {
     _http_ok http://localhost:9000/minio/health/live && _ok "minio  :9000" || _fail "minio  :9000"
     _http_ok http://localhost:9003/health            && _ok "diarize:9003" || _info "diarize:9003 (optional)"
     _http_ok http://localhost:9004/health            && _ok "asr    :9004" || _info "asr    :9004 (optional)"
-    _http_ok http://localhost:11434/api/tags         && _ok "ollama :11434" || _fail "ollama :11434 (ollama serve)"
+    _http_ok http://localhost:11434/api/tags         && _ok "ollama :11434" || _info "ollama :11434 (optional — needed only for llm.backend=ollama)"
 }
 
 do_start() {

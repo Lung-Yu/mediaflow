@@ -18,10 +18,10 @@
       "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
     },
     {
-      "id": 3, "type": "stat", "title": "Ollama",
+      "id": 3, "type": "stat", "title": "Ollama (optional)",
       "gridPos": {"h": 3, "w": 8, "x": 8, "y": 1},
       "targets": [{"datasource": {"uid": "prometheus"}, "expr": "probe_success{instance=\"http://host.docker.internal:11434/api/tags\"}"}],
-      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "orange"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": 0}, {"color": "green", "value": 1}]}}}
     },
     {
       "id": 4, "type": "stat", "title": "Diarize",

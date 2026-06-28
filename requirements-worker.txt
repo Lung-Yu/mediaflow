@@ -1,3 +1,4 @@
 # Host-only worker deps (C extensions, not in Docker image).
 # Installed automatically by scripts/ctl.sh when starting watcher/worker.
 webrtcvad
+mlx-lm

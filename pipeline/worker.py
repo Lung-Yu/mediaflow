@@ -47,15 +47,6 @@ def _mem_unload_asr(cfg: dict) -> None:
         log.warning("ASR unload failed: %s", exc)
 
 
-def _mem_unload_ollama(cfg: dict) -> None:
-    url = cfg.get("ollama", {}).get("service_url", "http://localhost:11434")
-    model = cfg.get("ollama", {}).get("model", "qwen2.5:14b")
-    try:
-        httpx.post(f"{url}/api/generate", json={"model": model, "keep_alive": 0}, timeout=15)
-        log.info("Ollama unloaded")
-    except Exception as exc:
-        log.warning("Ollama unload failed: %s", exc)
-
 
 def _upload_stage_intermediates(client, job_id: str, stage_id: str, ctx: dict) -> None:
     """Persist stage outputs to MinIO processing/ so retries can resume mid-pipeline."""
@@ -208,6 +199,9 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
                   for s in stage_plan]
     job_cfg = {**cfg, "pipeline": {**cfg.get("pipeline", {}), "stages": stage_cfgs}}
 
+    from pipeline.providers.llm import get_llm_provider
+    llm_provider = get_llm_provider(job_cfg)
+
     workdir = Path(tempfile.mkdtemp(prefix=f"mf_{job_id}_"))
     output_dir = workdir / "output"
     output_dir.mkdir()
@@ -221,6 +215,7 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
             "workspace": workdir,
             "output_dir": output_dir,
             "input_path": audio_path,
+            "llm_provider": llm_provider,
         }
 
         first_stage = stage_plan[0]["stage"]
@@ -234,12 +229,10 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
 
         def _on_stage_done(stage_id: str, new_ctx: dict) -> None:
             _upload_stage_intermediates(client, job_id, stage_id, new_ctx)
-            if stage_id == "preprocess":
-                _mem_unload_ollama(job_cfg)
-            elif stage_id == _whisper_last:
+            if stage_id == _whisper_last:
                 _mem_unload_asr(job_cfg)
             elif stage_id in ("summarize", "detect_chapters"):
-                _mem_unload_ollama(job_cfg)
+                llm_provider.unload()
 
         run_stages(job_cfg, ctx, pub, from_stage=resume_from, per_stage_done=_on_stage_done)
         _upload_outputs(client, job_id, output_dir)
