@@ -112,7 +112,6 @@
       "gridPos": {"h": 7, "w": 8, "x": 16, "y": 18},
       "targets": [
         {"datasource": {"uid": "prometheus"}, "expr": "apple_gpu_utilization_percent", "legendFormat": "GPU %"},
-        {"datasource": {"uid": "prometheus"}, "expr": "apple_ane_utilization_percent", "legendFormat": "ANE %"},
         {"datasource": {"uid": "prometheus"}, "expr": "apple_gpu_power_watts", "legendFormat": "GPU W"}
       ],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0}}
