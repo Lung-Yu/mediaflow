@@ -117,8 +117,11 @@ do_status() {
         && _ok  "diarize  pid=$(cat "$(_pid_file diarize)")" \
         || _info "diarize  not running (optional)"
     _is_running "asr" \
-        && _ok  "asr      pid=$(cat "$(_pid_file asr)")" \
-        || _info "asr      not running (optional — alternative to whisper)"
+        && _ok  "asr          pid=$(cat "$(_pid_file asr)")" \
+        || _info "asr          not running (optional — alternative to whisper)"
+    _is_running "gpu-exporter" \
+        && _ok  "gpu-exporter pid=$(cat "$(_pid_file gpu-exporter)")" \
+        || _info "gpu-exporter not running (optional — needs sudoers for powermetrics)"
 
     _head "Health"
     _http_ok http://localhost:8080/health            && _ok "api    :8080" || _fail "api    :8080"
@@ -162,6 +165,12 @@ do_start() {
         _head "Starting worker"
         _ensure_venv
         _start_bg worker python -m pipeline.worker
+    fi
+
+    if [[ "$svc" == "gpu-exporter" ]]; then
+        _head "Starting gpu-exporter (Apple Silicon)"
+        _ensure_venv
+        _start_bg gpu-exporter python monitoring/gpu_exporter.py
     fi
 
     if [[ "$svc" == "diarize" ]]; then
@@ -244,7 +253,7 @@ do_logs() {
     local svc="${1:-api}"
     case "$svc" in
         api|web|redis)                    $COMPOSE logs -f "$svc" ;;
-        watcher|worker|whisper|diarize|asr)   tail -f "$LOG_DIR/$svc.log" ;;
+        watcher|worker|whisper|diarize|asr|gpu-exporter)   tail -f "$LOG_DIR/$svc.log" ;;
         *) _fail "unknown service: $svc"; exit 1 ;;
     esac
 }

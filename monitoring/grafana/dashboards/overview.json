@@ -83,25 +83,60 @@
       ]
     },
     {
-      "id": 13, "type": "row", "title": "統計",
+      "id": 20, "type": "row", "title": "主機資源",
       "gridPos": {"h": 1, "w": 24, "x": 0, "y": 17},
       "collapsed": false
     },
     {
+      "id": 21, "type": "timeseries", "title": "CPU 使用率",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 18},
+      "targets": [{
+        "datasource": {"uid": "prometheus"},
+        "expr": "100 - (avg by() (rate(node_cpu_seconds_total{mode=\"idle\"}[2m])) * 100)",
+        "legendFormat": "CPU %"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}}
+    },
+    {
+      "id": 22, "type": "timeseries", "title": "記憶體使用",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 18},
+      "targets": [
+        {"datasource": {"uid": "prometheus"}, "expr": "node_memory_active_bytes", "legendFormat": "Active"},
+        {"datasource": {"uid": "prometheus"}, "expr": "node_memory_internal_bytes", "legendFormat": "Wired"},
+        {"datasource": {"uid": "prometheus"}, "expr": "node_memory_swap_used_bytes", "legendFormat": "Swap Used"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 23, "type": "timeseries", "title": "GPU / ANE 使用率",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 18},
+      "targets": [
+        {"datasource": {"uid": "prometheus"}, "expr": "apple_gpu_utilization_percent", "legendFormat": "GPU %"},
+        {"datasource": {"uid": "prometheus"}, "expr": "apple_ane_utilization_percent", "legendFormat": "ANE %"},
+        {"datasource": {"uid": "prometheus"}, "expr": "apple_gpu_power_watts", "legendFormat": "GPU W"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0}}
+    },
+    {
+      "id": 13, "type": "row", "title": "統計",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "collapsed": false
+    },
+    {
       "id": 14, "type": "stat", "title": "Total Completed",
-      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 18},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 26},
       "targets": [{"datasource": {"uid": "prometheus"}, "expr": "mediaflow_jobs_count{status=\"completed\"}"}],
       "fieldConfig": {"defaults": {"color": {"fixedColor": "green", "mode": "fixed"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}]}}}
     },
     {
       "id": 15, "type": "stat", "title": "Total Failed",
-      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 18},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 26},
       "targets": [{"datasource": {"uid": "prometheus"}, "expr": "mediaflow_jobs_count{status=\"failed\"}"}],
       "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}}
     },
     {
       "id": 16, "type": "piechart", "title": "Job Status Distribution",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
       "targets": [{"datasource": {"uid": "prometheus"}, "expr": "mediaflow_jobs_count", "legendFormat": "{{status}}"}]
     }
   ]
