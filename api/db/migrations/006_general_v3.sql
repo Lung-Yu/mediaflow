@@ -1,5 +1,7 @@
--- general-v3: adds vad_trim between preprocess and transcribe
+-- general-v3: adds vad_trim between preprocess and transcribe (new default)
 -- general-v3-large: same but uses whisper-large-v3-mlx for transcription
+
+UPDATE dag_flows SET is_default = false WHERE is_default = true;
 
 INSERT INTO dag_flows (id, stage_plan, is_default, deprecated, created_at)
 VALUES (
@@ -11,10 +13,10 @@ VALUES (
         {"stage": "correct_srt","config": {}},
         {"stage": "summarize",  "config": {}}
     ]',
-    false, false, extract(epoch from now())
+    true, false, extract(epoch from now())
 )
 ON CONFLICT (id) DO UPDATE
-    SET stage_plan = EXCLUDED.stage_plan, deprecated = false;
+    SET stage_plan = EXCLUDED.stage_plan, is_default = true, deprecated = false;
 
 INSERT INTO dag_flows (id, stage_plan, is_default, deprecated, created_at)
 VALUES (
