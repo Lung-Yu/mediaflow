@@ -104,9 +104,16 @@ whisper:
   # Leave empty to rely on per-request prompts only.
   initial_prompt: ""
 
-ollama:
-  service_url: http://localhost:11434
-  model: llama3
+# LLM backend for summarize, correct_srt, detect_chapters stages.
+# backend: mlx    → mlx-lm direct on Apple Silicon (lazy-loaded, recommended)
+# backend: ollama → Ollama HTTP server (requires separate Ollama process)
+llm:
+  backend: mlx
+  model: mlx-community/Qwen2.5-14B-Instruct-4bit
+
+# ollama:  (legacy — use llm: section above)
+#   service_url: http://localhost:11434
+#   model: qwen2.5:14b
 
 redis:
   host: localhost

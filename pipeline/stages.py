@@ -3,8 +3,8 @@
 Stages in order:
   1. preprocess   — FFmpeg speech-enhancement + 16kHz WAV
   2. transcribe   — Whisper HTTP service → SRT file
-  2b. correct_srt — optional Ollama pass to fix STT errors (llm_correction: true)
-  3. summarize    — Ollama → _summary.md + _summary.json
+  2b. correct_srt — optional LLM pass to fix STT errors
+  3. summarize    — LLM → _summary.md + _summary.json
 
 Each function returns the primary output path and raises on failure.
 """
@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-import ollama as _ollama
 
 from pipeline.prompts import PROMPTS
+from pipeline.providers.llm import LLMProvider, get_llm_provider
 
 log = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ def vad_trim(audio_path: Path, workspace: Path, cfg: dict) -> Path:
             ["ffmpeg", "-y", "-threads", _CPU_THREADS,
              "-i", str(audio_path),
              "-filter_complex", chain, "-map", "[out]", str(out)],
-            check=True, capture_output=True, timeout=300,
+            check=True, capture_output=True, timeout=3600,
         )
 
     return out
@@ -674,18 +674,14 @@ def _detect_recording_type(stem: str, cfg: dict) -> str:
     return "general"
 
 
-def _ollama_chat(model: str, prompt: str) -> str:
-    try:
-        resp = _ollama.chat(model=model, messages=[{"role": "user", "content": prompt}])
-        return resp["message"]["content"].strip()
-    except Exception as exc:
-        log.warning("Ollama unavailable: %s", exc)
-        return ""
+def _llm_chat(provider: LLMProvider, prompt: str) -> str:
+    return provider.chat(prompt)
 
 
-def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
-    """Ollama correction pass: fix Whisper STT errors in-place. Never raises."""
-    model = cfg["ollama"].get("model", "qwen2.5:7b")
+def correct_srt(stem: str, srt_path: Path, cfg: dict, provider: LLMProvider | None = None) -> Path:
+    """LLM correction pass: fix Whisper STT errors in-place. Never raises."""
+    if provider is None:
+        provider = get_llm_provider(cfg)
     srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
     blocks = _parse_srt_blocks(srt_content)
     if not blocks:
@@ -697,7 +693,7 @@ def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     for i in range(0, len(blocks), CHUNK):
         chunk = blocks[i:i + CHUNK]
         lines_in = "\n".join(f"{j}|{b['text']}" for j, b in enumerate(chunk))
-        raw = _ollama_chat(model, PROMPTS["correct_srt"]["base"] + "\n" + lines_in)
+        raw = _llm_chat(provider, PROMPTS["correct_srt"]["base"] + "\n" + lines_in)
 
         corrected_map: dict[int, str] = {}
         for line in raw.splitlines():
@@ -723,9 +719,10 @@ def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     return srt_path
 
 
-def polish_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
-    """Full-document Ollama pass for Chinese/English consistency. Never raises."""
-    model = cfg["ollama"].get("model", "qwen2.5:7b")
+def polish_srt(stem: str, srt_path: Path, cfg: dict, provider: LLMProvider | None = None) -> Path:
+    """Full-document LLM pass for Chinese/English consistency. Never raises."""
+    if provider is None:
+        provider = get_llm_provider(cfg)
     srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
     blocks = _parse_srt_blocks(srt_content)
     if not blocks:
@@ -737,7 +734,7 @@ def polish_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     for i in range(0, len(blocks), CHUNK):
         chunk = blocks[i:i + CHUNK]
         lines_in = "\n".join(f"{j}|{b['text']}" for j, b in enumerate(chunk))
-        raw = _ollama_chat(model, PROMPTS["polish_srt"]["base"] + "\n" + lines_in)
+        raw = _llm_chat(provider, PROMPTS["polish_srt"]["base"] + "\n" + lines_in)
 
         corrected_map: dict[int, str] = {}
         for line in raw.splitlines():
@@ -763,20 +760,20 @@ def polish_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     return srt_path
 
 
-def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
-    """Generate structured summary from SRT via Ollama.
+def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict, provider: LLMProvider | None = None) -> Path:
+    """Generate structured summary from SRT via LLM.
 
     Outputs:
       {stem}_summary.md   — human-readable markdown
       {stem}_summary.json — structured data for downstream tools
     Returns the .md path.
-    Never raises — falls back gracefully if Ollama is down.
+    Never raises — falls back gracefully if LLM is unavailable.
     """
+    if provider is None:
+        provider = get_llm_provider(cfg)
     output_dir.mkdir(parents=True, exist_ok=True)
     md_path = output_dir / f"{stem}_summary.md"
     json_path = output_dir / f"{stem}_summary.json"
-
-    model = cfg["ollama"].get("model", "qwen2.5:7b")
     srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
     blocks = _parse_srt_blocks(srt_content)
 
@@ -796,14 +793,14 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
     p = PROMPTS["summarize"][rtype]
 
     # A. Overall summary
-    overview = _ollama_chat(model, p["overview"] + "\n" + full_text[:6000])
+    overview = _llm_chat(provider, p["overview"] + "\n" + full_text[:6000])
 
     # B. Key moments (chunked for large files)
     chunk_size = 150
     all_moments: list[dict] = []
     for i in range(0, len(ts_lines), chunk_size):
         chunk = "\n".join(ts_lines[i:i + chunk_size])
-        raw = _ollama_chat(model, p["moments"] + "\n" + chunk)
+        raw = _llm_chat(provider, p["moments"] + "\n" + chunk)
         for line in raw.splitlines():
             m = re.match(r"\[?(\d{2}:\d{2}:\d{2})\]?\s*(.+)", line.strip())
             if m:
@@ -824,7 +821,7 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
 
     # C. Topic segments (sampled view)
     sampled = ts_lines[::12][:200]
-    topics_raw = _ollama_chat(model, p["topics"] + "\n" + "\n".join(sampled))
+    topics_raw = _llm_chat(provider, p["topics"] + "\n" + "\n".join(sampled))
     topic_names = [
         ln.strip(" \t•·-–：:.,。，")
         for ln in topics_raw.splitlines()
@@ -896,13 +893,15 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
 
 # ── Stage 4: Chapter Detection ───────────────────────────────────────────────
 
-def detect_chapters(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> Path:
-    """Detect chapter boundaries from silence gaps, title each via Ollama.
+def detect_chapters(stem: str, srt_path: Path, output_dir: Path, cfg: dict, provider: LLMProvider | None = None) -> Path:
+    """Detect chapter boundaries from silence gaps, title each via LLM.
 
     Outputs {stem}_chapters.json. Appends chapter index to {stem}_summary.md
     if it already exists.
     Never raises.
     """
+    if provider is None:
+        provider = get_llm_provider(cfg)
     output_dir.mkdir(parents=True, exist_ok=True)
     chapters_path = output_dir / f"{stem}_chapters.json"
 
@@ -917,7 +916,6 @@ def detect_chapters(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> P
     ch_cfg = cfg.get("chapters", {})
     min_silence = float(ch_cfg.get("min_silence_sec", 30.0))
     max_chapters = int(ch_cfg.get("max_chapters", 8))
-    model = cfg["ollama"].get("model", "qwen2.5:7b")
 
     # Detect silence gaps between consecutive segments
     gaps = []
@@ -956,7 +954,7 @@ def detect_chapters(stem: str, srt_path: Path, output_dir: Path, cfg: dict) -> P
                 + "【後段】\n" + after
             )
 
-        title = _ollama_chat(model, prompt).strip()
+        title = _llm_chat(provider, prompt).strip()
         if not title or len(title) > 20:
             title = f"第{ch_idx + 1}段"
 
