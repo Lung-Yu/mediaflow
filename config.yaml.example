@@ -65,6 +65,15 @@ preprocessing:
   # Download: bash scripts/download-models.sh
   # rnnoise_model: models/bd.rnnn
 
+vad:
+  # WebRTC VAD aggressiveness: 0 (keep more audio) … 3 (cut more aggressively).
+  # 1 is conservative and safe for far-field / quiet-speaker recordings.
+  # 2 works for most typical meeting/lecture recordings.
+  # 3 only if you have clean close-mic audio and want maximum noise removal.
+  aggressiveness: 1
+  # Padding around detected speech regions (ms). Keeps natural breath / trailing syllables.
+  padding_ms: 300
+
 diarization:
   service_url: http://localhost:9003
   num_speakers: null               # set to known count for better accuracy (e.g. 2)

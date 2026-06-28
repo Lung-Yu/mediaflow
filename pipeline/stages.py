@@ -129,7 +129,107 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
     return out
 
 
-# ── Stage 1b: Audio Segmentation ───────────────────────────────────────────
+# ── Stage 1b: VAD Trim ─────────────────────────────────────────────────────
+
+def vad_trim(audio_path: Path, workspace: Path, cfg: dict) -> Path:
+    """Remove non-speech segments using WebRTC VAD.
+
+    Classifies 30ms frames as speech/non-speech using acoustic features
+    (energy + pitch periodicity), not absolute dB levels — works across
+    varying recording distances.
+
+    Returns a new WAV with only speech regions (plus padding), preserving
+    original timestamps is NOT a goal here; SRT timestamps are relative
+    to this trimmed audio.
+    """
+    import wave as _wave
+    try:
+        import webrtcvad
+    except ImportError:
+        raise RuntimeError(
+            "webrtcvad not installed. Run: pip install webrtcvad"
+        )
+
+    vad_cfg = cfg.get("vad", {})
+    aggressiveness = int(vad_cfg.get("aggressiveness", 2))   # 0=lenient … 3=aggressive
+    padding_ms     = int(vad_cfg.get("padding_ms", 300))     # ms of context around speech
+
+    FRAME_MS   = 30
+    vad        = webrtcvad.Vad(aggressiveness)
+
+    with _wave.open(str(audio_path), "rb") as wf:
+        rate     = wf.getframerate()
+        pcm      = wf.readframes(wf.getnframes())
+
+    frame_bytes = rate * FRAME_MS // 1000 * 2   # 16-bit mono → 2 bytes/sample
+    frames      = [pcm[i : i + frame_bytes] for i in range(0, len(pcm) - frame_bytes + 1, frame_bytes)]
+
+    speech = []
+    for frame in frames:
+        try:
+            speech.append(vad.is_speech(frame, rate))
+        except Exception:
+            speech.append(False)
+
+    # Pad: expand each speech frame outward by padding_ms
+    pad_frames = padding_ms // FRAME_MS
+    padded = list(speech)
+    for i, sp in enumerate(speech):
+        if sp:
+            for j in range(max(0, i - pad_frames), min(len(padded), i + pad_frames + 1)):
+                padded[j] = True
+
+    # Collect contiguous speech regions
+    regions: list[tuple[float, float]] = []
+    in_sp   = False
+    t_start = 0.0
+    for i, sp in enumerate(padded):
+        t = i * FRAME_MS / 1000.0
+        if sp and not in_sp:
+            t_start = t
+            in_sp   = True
+        elif not sp and in_sp:
+            regions.append((t_start, t))
+            in_sp = False
+    if in_sp:
+        regions.append((t_start, len(padded) * FRAME_MS / 1000.0))
+
+    total_in  = len(pcm) / (rate * 2)
+    total_out = sum(e - s for s, e in regions)
+    log.info("vad_trim: %d region(s) %.1fs → %.1fs (%.0f%% kept)",
+             len(regions), total_in, total_out, 100 * total_out / total_in if total_in else 0)
+
+    if not regions:
+        log.warning("vad_trim: no speech detected, returning original")
+        return audio_path
+
+    out = workspace / "2_processing" / f"{audio_path.stem}_vad.wav"
+
+    if len(regions) == 1:
+        s, e = regions[0]
+        subprocess.run(
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(audio_path), "-ss", f"{s:.3f}", "-to", f"{e:.3f}", str(out)],
+            check=True, capture_output=True, timeout=300,
+        )
+    else:
+        # atrim each region, concatenate with ffmpeg concat filter
+        parts = [f"[0:a]atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS[a{i}]"
+                 for i, (s, e) in enumerate(regions)]
+        chain = ";".join(parts)
+        labels = "".join(f"[a{i}]" for i in range(len(regions)))
+        chain += f";{labels}concat=n={len(regions)}:v=0:a=1[out]"
+        subprocess.run(
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(audio_path),
+             "-filter_complex", chain, "-map", "[out]", str(out)],
+            check=True, capture_output=True, timeout=300,
+        )
+
+    return out
+
+
+# ── Stage 1c: Audio Segmentation ───────────────────────────────────────────
 
 def _get_audio_duration(audio_path: Path) -> float:
     """Return duration in seconds via ffprobe."""
@@ -237,8 +337,10 @@ def _segments_to_srt(segments: list[dict]) -> str:
 
 def _call_whisper(audio_path: Path, cfg: dict, initial_prompt: str = "") -> list[dict]:
     """POST one audio file to Whisper /transcribe_segments; return raw segments."""
-    service_url = cfg["whisper"]["service_url"].rstrip("/")
-    language = cfg["whisper"].get("language", "zh")
+    stage_cfgs = cfg.get("pipeline", {}).get("stages", [])
+    tr_cfg = next((s for s in stage_cfgs if s.get("id") == "transcribe"), {})
+    service_url = (tr_cfg.get("service_url") or cfg["whisper"]["service_url"]).rstrip("/")
+    language = tr_cfg.get("language") or cfg["whisper"].get("language", "zh")
     prompt = initial_prompt or cfg["whisper"].get("initial_prompt", "") or ""
 
     params: dict = {
@@ -618,6 +720,46 @@ def correct_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
     srt_path.write_text("\n".join(lines), encoding="utf-8")
 
     log.info("correct_srt done: %s (%d blocks)", stem, len(corrected_blocks))
+    return srt_path
+
+
+def polish_srt(stem: str, srt_path: Path, cfg: dict) -> Path:
+    """Full-document Ollama pass for Chinese/English consistency. Never raises."""
+    model = cfg["ollama"].get("model", "qwen2.5:7b")
+    srt_content = srt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = _parse_srt_blocks(srt_content)
+    if not blocks:
+        return srt_path
+
+    CHUNK = 200  # ponytail: fits most recordings in one LLM call; split if >200 segs
+    corrected_blocks: list[dict] = []
+
+    for i in range(0, len(blocks), CHUNK):
+        chunk = blocks[i:i + CHUNK]
+        lines_in = "\n".join(f"{j}|{b['text']}" for j, b in enumerate(chunk))
+        raw = _ollama_chat(model, PROMPTS["polish_srt"]["base"] + "\n" + lines_in)
+
+        corrected_map: dict[int, str] = {}
+        for line in raw.splitlines():
+            if "|" in line:
+                idx_str, _, text = line.partition("|")
+                try:
+                    corrected_map[int(idx_str.strip())] = text.strip()
+                except ValueError:
+                    pass
+
+        for j, block in enumerate(chunk):
+            corrected_blocks.append({
+                "time": block["time"],
+                "text": corrected_map.get(j, block["text"]),
+            })
+
+    lines = []
+    for i, block in enumerate(corrected_blocks, start=1):
+        lines.append(f"{i}\n{block['time']}\n{block['text']}\n")
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+
+    log.info("polish_srt done: %s (%d blocks)", stem, len(corrected_blocks))
     return srt_path
 
 

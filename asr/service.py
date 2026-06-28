@@ -1,24 +1,20 @@
-"""Qwen2-Audio-7B-Instruct ASR HTTP service — Apple Silicon (MPS + CPU via device_map=auto).
+"""Qwen3-ASR + ForcedAligner MLX service — Apple Silicon native, no PyTorch.
 
-Drop-in replacement for whisper/service.py — exposes identical endpoints.
-Switch by setting whisper.service_url: http://localhost:9004 in config.yaml.
+Drop-in for whisper/service.py. Switch: whisper.service_url: http://localhost:9004 in config.yaml.
 
 Endpoints:
   GET  /health               — liveness + model-loaded flag
   POST /transcribe_segments  — full audio → {segments: [{id, start, end, text, avg_logprob, no_speech_prob}]}
   POST /transcribe_large     — short clip → {text: "..."}
 
-Usage:
-  ASR_MODEL=Qwen/Qwen2-Audio-7B-Instruct uvicorn asr.service:app --host 0.0.0.0 --port 9004
+Flow: Session.transcribe(audio, forced_aligner=aligner) handles chunking internally.
+      Word-level segments → OpenCC → sentence grouping → SRT-style output.
 """
 import asyncio
-import hashlib
-import json
+import io
 import os
 import sys
-import tempfile
 from math import gcd
-from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -27,158 +23,113 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-MODEL = os.environ.get("ASR_MODEL", "Qwen/Qwen2-Audio-7B-Instruct")
-CHUNK_SEC = int(os.environ.get("ASR_CHUNK_SEC", "30"))
-BATCH_SIZE = int(os.environ.get("ASR_BATCH_SIZE", "1"))  # >1 needs enough RAM (32GB+)
-_CKPT_DIR = Path(os.environ.get("ASR_CHECKPOINT_DIR", "/tmp/asr_checkpoints"))
-_CKPT_DIR.mkdir(parents=True, exist_ok=True)
+ASR_MODEL = os.environ.get("ASR_MODEL", "mlx-community/Qwen3-ASR-1.7B-bf16")
+ALIGNER_MODEL = os.environ.get("ALIGNER_MODEL", "mlx-community/Qwen3-ForcedAligner-0.6B-8bit")
+SR = 16000
+HARD_STOPS = frozenset("。！？")
+MAX_SEG_CHARS = 20
+
+_session = None
+_aligner = None
+_cc = None
 
 
-def _ckpt_path(wav_bytes: bytes) -> Path:
-    # ponytail: first 64 KB is enough to distinguish files, avoids hashing 300 MB
-    h = hashlib.md5(wav_bytes[:65536]).hexdigest()
-    return _CKPT_DIR / f"{h}.json"
-
-_model = None
-_processor = None
-_model_loaded = False
+def _get_cc():
+    global _cc
+    if _cc is None:
+        import opencc
+        _cc = opencc.OpenCC("s2twp")
+    return _cc
 
 
-def _get_model():
-    global _model, _processor, _model_loaded
-    if _model is not None:
-        return _model, _processor
-    import torch
-    from transformers import AutoProcessor, Qwen2AudioForConditionalGeneration
-
-    _processor = AutoProcessor.from_pretrained(MODEL)
-    _model = Qwen2AudioForConditionalGeneration.from_pretrained(
-        MODEL,
-        torch_dtype=torch.float16,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-    )
-    _model_loaded = True
-    return _model, _processor
+def _get_session():
+    global _session
+    if _session is None:
+        from mlx_qwen3_asr import Session
+        _session = Session(model=ASR_MODEL)
+    return _session
 
 
-def _resample(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
-    from scipy.signal import resample_poly
-    g = gcd(src_sr, dst_sr)
-    return resample_poly(audio, dst_sr // g, src_sr // g).astype(np.float32)
+def _get_aligner():
+    global _aligner
+    if _aligner is None:
+        from mlx_qwen3_asr.forced_aligner import ForcedAligner
+        _aligner = ForcedAligner(model_path=ALIGNER_MODEL)
+    return _aligner
 
 
-def _transcribe_batch(
-    audios: list, sr: int, language: str, prompt: str, model, processor
-) -> list:
-    import torch
-
-    lang_hint = "繁體中文" if language == "zh" else language
-    instruction = prompt or f"請將以上音訊逐字轉錄為{lang_hint}文字。"
-
-    conversation = [{"role": "user", "content": [
-        {"type": "audio", "audio_url": "placeholder"},
-        {"type": "text", "text": instruction},
-    ]}]
-    text = processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
-    inputs = processor(
-        text=[text] * len(audios),
-        audios=audios,
-        sampling_rate=sr,
-        return_tensors="pt",
-        padding=True,
-    )
-    inputs = {k: v.to(model.device) for k, v in inputs.items() if hasattr(v, "to")}
-
-    with torch.no_grad():
-        generated = model.generate(**inputs, max_new_tokens=2000, do_sample=False)
-
-    # left-padding: all items generate starting at the same offset
-    generated = generated[:, inputs["input_ids"].size(1):]
-    return [processor.decode(g, skip_special_tokens=True).strip() for g in generated]
+def _decode(wav_bytes: bytes) -> np.ndarray:
+    audio, sr = sf.read(io.BytesIO(wav_bytes))
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    audio = audio.astype(np.float32)
+    if sr != SR:
+        from scipy.signal import resample_poly
+        g = gcd(sr, SR)
+        audio = resample_poly(audio, SR // g, sr // g).astype(np.float32)
+    return audio
 
 
-def _do_transcribe(wav_bytes: bytes, language: str, prompt: str) -> dict:
-    """Blocking — runs in thread pool executor."""
-    model, processor = _get_model()
-    target_sr = processor.feature_extractor.sampling_rate  # 16000
+def _words_to_segments(words: list[dict]) -> list[dict]:
+    """Group word-level dicts ({text, start, end}) into sentence segments."""
+    cc = _get_cc()
+    segments = []
+    seg_id = 0
+    buf_text = ""
+    buf_start = None
+    buf_end = None
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp.write(wav_bytes)
-        wav_path = Path(tmp.name)
+    for w in words:
+        if buf_start is None:
+            buf_start = w["start"]
+        buf_text += w["text"]
+        buf_end = w["end"]
 
-    ckpt = _ckpt_path(wav_bytes)
+        if (w["text"] and w["text"][-1] in HARD_STOPS) or len(buf_text) >= MAX_SEG_CHARS:
+            text = cc.convert(buf_text).strip()
+            if text:
+                segments.append({
+                    "id": seg_id, "start": round(buf_start, 3), "end": round(buf_end, 3),
+                    "text": text, "avg_logprob": 0.0, "no_speech_prob": 0.0,
+                })
+                seg_id += 1
+            buf_text = ""
+            buf_start = None
 
-    try:
-        audio, file_sr = sf.read(str(wav_path))
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        audio = audio.astype(np.float32)
+    if buf_text.strip():
+        text = cc.convert(buf_text).strip()
+        if text:
+            segments.append({
+                "id": seg_id, "start": round(buf_start, 3), "end": round(buf_end, 3),
+                "text": text, "avg_logprob": 0.0, "no_speech_prob": 0.0,
+            })
 
-        if file_sr != target_sr:
-            audio = _resample(audio, file_sr, target_sr)
+    return segments
 
-        chunk_samples = CHUNK_SEC * target_sr
-        total = len(audio)
-        total_chunks = (total + chunk_samples - 1) // chunk_samples
 
-        # Resume from checkpoint if available
-        segments = []
-        seg_id = 0
-        offset = 0
-        if ckpt.exists():
-            saved = json.loads(ckpt.read_text())
-            segments = saved["segments"]
-            seg_id = saved["next_seg_id"]
-            offset = saved["next_offset"]
-            print(f"[asr] resumed from checkpoint: chunk {seg_id + 1}/{total_chunks} offset={offset}", flush=True)
-
-        while offset < total:
-            batch_chunks, batch_meta = [], []
-            for _ in range(BATCH_SIZE):
-                if offset >= total:
-                    break
-                chunk = audio[offset: offset + chunk_samples]
-                start_sec = round(offset / target_sr, 3)
-                end_sec = round(min((offset + chunk_samples) / target_sr, total / target_sr), 3)
-                batch_chunks.append(chunk)
-                batch_meta.append((start_sec, end_sec))
-                offset += chunk_samples
-
-            print(f"[asr] chunks {seg_id + 1}-{seg_id + len(batch_chunks)}/{total_chunks} batch={len(batch_chunks)}", flush=True)
-            texts = _transcribe_batch(batch_chunks, target_sr, language, prompt, model, processor)
-
-            for (start_sec, end_sec), text in zip(batch_meta, texts):
-                if text:
-                    segments.append({
-                        "id": seg_id,
-                        "start": start_sec,
-                        "end": end_sec,
-                        "text": text,
-                        # ponytail: Qwen2-Audio exposes no logprobs; 0.0 disables verify_segments flagging
-                        "avg_logprob": 0.0,
-                        "no_speech_prob": 0.0,
-                    })
-                    seg_id += 1
-
-            ckpt.write_text(json.dumps({"segments": segments, "next_seg_id": seg_id, "next_offset": offset}))
-
-        ckpt.unlink(missing_ok=True)
-        return {"segments": segments}
-    finally:
-        wav_path.unlink(missing_ok=True)
+def _do_transcribe(wav_bytes: bytes, language: str, context: str = "") -> dict:
+    audio = _decode(wav_bytes)
+    result = _get_session().transcribe(audio, language=language, forced_aligner=_get_aligner(),
+                                       return_timestamps=True, context=context)
+    words = result.segments or []
+    return {"segments": _words_to_segments(words)}
 
 
 def _do_transcribe_text(wav_bytes: bytes, language: str) -> dict:
-    """Transcribe and return concatenated text (for verify_segments)."""
-    result = _do_transcribe(wav_bytes, language, "")
-    text = " ".join(s["text"].strip() for s in result["segments"] if s["text"].strip())
-    return {"text": text}
+    audio = _decode(wav_bytes)
+    result = _get_session().transcribe(audio, language=language)
+    return {"text": _get_cc().convert(result.text).strip()}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": MODEL, "model_loaded": _model_loaded}
+    return {
+        "status": "ok",
+        "asr_model": ASR_MODEL,
+        "aligner_model": ALIGNER_MODEL,
+        "asr_loaded": _session is not None,
+        "aligner_loaded": _aligner is not None,
+    }
 
 
 @app.post("/transcribe_segments")
@@ -192,9 +143,7 @@ async def transcribe_segments_endpoint(
     try:
         data = await audio.read()
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, _do_transcribe, data, language, initial_prompt
-        )
+        result = await loop.run_in_executor(None, _do_transcribe, data, language, initial_prompt)
         return JSONResponse(result)
     except Exception as exc:
         print(f"[asr/segments] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)

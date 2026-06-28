@@ -108,6 +108,25 @@ async def transcribe_segments_endpoint(
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@app.post("/unload")
+def unload():
+    global _model_loaded
+    try:
+        import gc
+        import mlx.core as mx
+        import mlx_whisper
+        for attr in ("_MODELS", "_model_cache"):
+            cache = getattr(mlx_whisper, attr, None)
+            if isinstance(cache, dict):
+                cache.clear()
+        mx.metal.clear_cache()
+        gc.collect()
+    except Exception as exc:
+        print(f"[whisper/unload] {exc}", file=sys.stderr)
+    _model_loaded = False
+    return {"status": "unloaded"}
+
+
 @app.post("/transcribe_large")
 async def transcribe_large_endpoint(
     audio: UploadFile = File(...),

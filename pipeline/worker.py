@@ -15,6 +15,7 @@ import redis as redis_lib
 
 from pipeline.config import load as load_config
 from pipeline.runner import execute as run_stages
+from pipeline import telemetry
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ _DAGSERVICE_URL = os.getenv("DAGSERVICE_URL", "http://localhost:8080")
 
 # Stage order used to determine which intermediates to restore on resume
 _STAGE_ORDER = [
-    "preprocess", "segment_audio", "transcribe", "verify_segments",
+    "preprocess", "vad_trim", "segment_audio", "transcribe", "verify_segments",
     "correct_srt", "diarize", "summarize", "detect_chapters",
 ]
 
@@ -37,10 +38,29 @@ def _stage_index(stage_id: str) -> int:
         return 0
 
 
+def _mem_unload_asr(cfg: dict) -> None:
+    url = cfg.get("whisper", {}).get("service_url", "http://localhost:9001")
+    try:
+        httpx.post(f"{url}/unload", timeout=10)
+        log.info("ASR unloaded")
+    except Exception as exc:
+        log.warning("ASR unload failed: %s", exc)
+
+
+def _mem_unload_ollama(cfg: dict) -> None:
+    url = cfg.get("ollama", {}).get("service_url", "http://localhost:11434")
+    model = cfg.get("ollama", {}).get("model", "qwen2.5:14b")
+    try:
+        httpx.post(f"{url}/api/generate", json={"model": model, "keep_alive": 0}, timeout=15)
+        log.info("Ollama unloaded")
+    except Exception as exc:
+        log.warning("Ollama unload failed: %s", exc)
+
+
 def _upload_stage_intermediates(client, job_id: str, stage_id: str, ctx: dict) -> None:
     """Persist stage outputs to MinIO processing/ so retries can resume mid-pipeline."""
     prefix = f"processing/{job_id}/intermediates"
-    if stage_id == "preprocess":
+    if stage_id in ("preprocess", "vad_trim"):
         audio = ctx.get("audio_path")
         if audio and Path(audio).exists():
             client.upload_file(f"{prefix}/{Path(audio).name}", Path(audio),
@@ -66,16 +86,30 @@ def _restore_intermediates(client, job_id: str, from_stage: str, processing_path
 
     if from_idx > _stage_index("preprocess"):
         original_stem = Path(processing_path.split("/")[-1]).stem
-        audio_name = f"{original_stem}_clean.wav"
-        audio_dest = workdir / "2_processing" / audio_name
-        audio_dest.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            client.download_file_from(f"{prefix}/{audio_name}", audio_dest,
-                                      bucket=client.processing_bucket)
-            extra["audio_path"] = audio_dest
-            log.info("Restored intermediate audio: %s", audio_name)
-        except Exception as exc:
-            log.warning("Cannot restore audio intermediate for %s: %s", job_id, exc)
+        (workdir / "2_processing").mkdir(parents=True, exist_ok=True)
+        # Prefer vad_trim output if resuming past that stage
+        vad_name = f"{original_stem}_clean_vad.wav"
+        clean_name = f"{original_stem}_clean.wav"
+        restored = False
+        if from_idx > _stage_index("vad_trim"):
+            vad_dest = workdir / "2_processing" / vad_name
+            try:
+                client.download_file_from(f"{prefix}/{vad_name}", vad_dest,
+                                          bucket=client.processing_bucket)
+                extra["audio_path"] = vad_dest
+                log.info("Restored VAD intermediate: %s", vad_name)
+                restored = True
+            except Exception:
+                pass
+        if not restored:
+            audio_dest = workdir / "2_processing" / clean_name
+            try:
+                client.download_file_from(f"{prefix}/{clean_name}", audio_dest,
+                                          bucket=client.processing_bucket)
+                extra["audio_path"] = audio_dest
+                log.info("Restored intermediate audio: %s", clean_name)
+            except Exception as exc:
+                log.warning("Cannot restore audio intermediate for %s: %s", job_id, exc)
 
     if from_idx > _stage_index("transcribe"):
         srt_name = f"{job_id}.srt"
@@ -195,8 +229,17 @@ def _run_job(msg_id: str, fields: dict, r: redis_lib.Redis):
                 client, job_id, resume_from, processing_path, workdir, output_dir)
             ctx.update(extra)
 
+        _asr_stages = {s["stage"] for s in stage_plan if s["stage"] in ("transcribe", "verify_segments")}
+        _whisper_last = "verify_segments" if "verify_segments" in _asr_stages else "transcribe"
+
         def _on_stage_done(stage_id: str, new_ctx: dict) -> None:
             _upload_stage_intermediates(client, job_id, stage_id, new_ctx)
+            if stage_id == "preprocess":
+                _mem_unload_ollama(job_cfg)
+            elif stage_id == _whisper_last:
+                _mem_unload_asr(job_cfg)
+            elif stage_id in ("summarize", "detect_chapters"):
+                _mem_unload_ollama(job_cfg)
 
         run_stages(job_cfg, ctx, pub, from_stage=resume_from, per_stage_done=_on_stage_done)
         _upload_outputs(client, job_id, output_dir)
@@ -225,6 +268,9 @@ def run():
     _cpu_threads = os.getenv("WORKER_CPU_THREADS", "2")
     os.environ.setdefault("OMP_NUM_THREADS", _cpu_threads)   # Demucs/PyTorch
     os.environ.setdefault("MKL_NUM_THREADS", _cpu_threads)   # numpy/MKL
+
+    otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+    telemetry.init(endpoint=otel_endpoint)
 
     cfg = load_config()
     max_workers = cfg.get("pipeline", {}).get("max_concurrent_jobs", 2)

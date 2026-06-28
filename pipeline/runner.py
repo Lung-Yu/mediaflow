@@ -52,6 +52,14 @@ def _adapt_preprocess(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return {**ctx, "audio_path": audio_path}, {"filename": input_path.name}
 
 
+def _adapt_vad_trim(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    audio_path = ctx["audio_path"]
+    if not audio_path.exists():
+        raise FileNotFoundError(f"vad_trim: audio not found: {audio_path}")
+    trimmed = stages.vad_trim(audio_path, ctx["workspace"], cfg)
+    return {**ctx, "audio_path": trimmed}, {}
+
+
 def _adapt_segment_audio(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     audio_path = ctx["audio_path"]
     if not audio_path.exists():
@@ -92,6 +100,14 @@ def _adapt_correct_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return ctx, {}
 
 
+def _adapt_polish_srt(ctx: dict, cfg: dict) -> tuple[dict, dict]:
+    srt_path = ctx["srt_path"]
+    if not srt_path.exists():
+        raise FileNotFoundError(f"SRT not found for polish: {srt_path}")
+    stages.polish_srt(ctx["stem"], srt_path, cfg)
+    return ctx, {}
+
+
 def _adapt_diarize(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     srt_path = ctx["srt_path"]
     audio_path = ctx["audio_path"]
@@ -120,12 +136,24 @@ def _adapt_detect_chapters(ctx: dict, cfg: dict) -> tuple[dict, dict]:
     return {**ctx, "chapters_path": chapters_path}, {}
 
 
+_meter = _otel_metrics.get_meter("mediaflow.pipeline")
+_stage_duration = _meter.create_histogram(
+    "mediaflow.stage.duration", unit="s",
+    description="Pipeline stage processing time",
+)
+_last_stage_ts = _meter.create_gauge(
+    "mediaflow.pipeline.last_stage_ts", unit="s",
+    description="Unix timestamp of last stage completion event",
+)
+
 STAGE_RUNNERS: dict[str, Callable] = {
     "preprocess":      _adapt_preprocess,
+    "vad_trim":        _adapt_vad_trim,
     "segment_audio":   _adapt_segment_audio,
     "transcribe":      _adapt_transcribe,
     "verify_segments": _adapt_verify_segments,
     "correct_srt":     _adapt_correct_srt,
+    "polish_srt":      _adapt_polish_srt,
     "diarize":         _adapt_diarize,
     "summarize":       _adapt_summarize,
     "detect_chapters": _adapt_detect_chapters,
@@ -186,15 +214,8 @@ def execute(
             except Exception as _exc:
                 log.warning("per_stage_done failed stage=%s: %s", sid, _exc)
 
-        meter = _otel_metrics.get_meter("mediaflow.pipeline")
-        meter.create_histogram(
-            "mediaflow.stage.duration", unit="s",
-            description="Pipeline stage processing time",
-        ).record(elapsed, {"stage": sid})
-        meter.create_gauge(
-            "mediaflow.pipeline.last_stage_ts", unit="s",
-            description="Unix timestamp of last stage completion event",
-        ).set(time.time())
+        _stage_duration.record(elapsed, {"stage": sid})
+        _last_stage_ts.set(time.time())
 
         pub.publish("stage.completed", ctx["stem"], stage=sid, **extra)
         if stop_after and sid == stop_after:

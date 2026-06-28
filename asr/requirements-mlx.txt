@@ -1,0 +1,8 @@
+mlx-qwen3-asr @ git+https://github.com/moona3k/mlx-qwen3-asr
+soundfile
+numpy
+scipy
+fastapi
+uvicorn[standard]
+python-multipart
+opencc-python-reimplemented
