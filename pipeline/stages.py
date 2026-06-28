@@ -129,7 +129,107 @@ def preprocess(input_path: Path, workspace: Path, cfg: dict) -> Path:
     return out
 
 
-# ── Stage 1b: Audio Segmentation ───────────────────────────────────────────
+# ── Stage 1b: VAD Trim ─────────────────────────────────────────────────────
+
+def vad_trim(audio_path: Path, workspace: Path, cfg: dict) -> Path:
+    """Remove non-speech segments using WebRTC VAD.
+
+    Classifies 30ms frames as speech/non-speech using acoustic features
+    (energy + pitch periodicity), not absolute dB levels — works across
+    varying recording distances.
+
+    Returns a new WAV with only speech regions (plus padding), preserving
+    original timestamps is NOT a goal here; SRT timestamps are relative
+    to this trimmed audio.
+    """
+    import wave as _wave
+    try:
+        import webrtcvad
+    except ImportError:
+        raise RuntimeError(
+            "webrtcvad not installed. Run: pip install webrtcvad"
+        )
+
+    vad_cfg = cfg.get("vad", {})
+    aggressiveness = int(vad_cfg.get("aggressiveness", 2))   # 0=lenient … 3=aggressive
+    padding_ms     = int(vad_cfg.get("padding_ms", 300))     # ms of context around speech
+
+    FRAME_MS   = 30
+    vad        = webrtcvad.Vad(aggressiveness)
+
+    with _wave.open(str(audio_path), "rb") as wf:
+        rate     = wf.getframerate()
+        pcm      = wf.readframes(wf.getnframes())
+
+    frame_bytes = rate * FRAME_MS // 1000 * 2   # 16-bit mono → 2 bytes/sample
+    frames      = [pcm[i : i + frame_bytes] for i in range(0, len(pcm) - frame_bytes + 1, frame_bytes)]
+
+    speech = []
+    for frame in frames:
+        try:
+            speech.append(vad.is_speech(frame, rate))
+        except Exception:
+            speech.append(False)
+
+    # Pad: expand each speech frame outward by padding_ms
+    pad_frames = padding_ms // FRAME_MS
+    padded = list(speech)
+    for i, sp in enumerate(speech):
+        if sp:
+            for j in range(max(0, i - pad_frames), min(len(padded), i + pad_frames + 1)):
+                padded[j] = True
+
+    # Collect contiguous speech regions
+    regions: list[tuple[float, float]] = []
+    in_sp   = False
+    t_start = 0.0
+    for i, sp in enumerate(padded):
+        t = i * FRAME_MS / 1000.0
+        if sp and not in_sp:
+            t_start = t
+            in_sp   = True
+        elif not sp and in_sp:
+            regions.append((t_start, t))
+            in_sp = False
+    if in_sp:
+        regions.append((t_start, len(padded) * FRAME_MS / 1000.0))
+
+    total_in  = len(pcm) / (rate * 2)
+    total_out = sum(e - s for s, e in regions)
+    log.info("vad_trim: %d region(s) %.1fs → %.1fs (%.0f%% kept)",
+             len(regions), total_in, total_out, 100 * total_out / total_in if total_in else 0)
+
+    if not regions:
+        log.warning("vad_trim: no speech detected, returning original")
+        return audio_path
+
+    out = workspace / "2_processing" / f"{audio_path.stem}_vad.wav"
+
+    if len(regions) == 1:
+        s, e = regions[0]
+        subprocess.run(
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(audio_path), "-ss", f"{s:.3f}", "-to", f"{e:.3f}", str(out)],
+            check=True, capture_output=True, timeout=300,
+        )
+    else:
+        # atrim each region, concatenate with ffmpeg concat filter
+        parts = [f"[0:a]atrim={s:.3f}:{e:.3f},asetpts=PTS-STARTPTS[a{i}]"
+                 for i, (s, e) in enumerate(regions)]
+        chain = ";".join(parts)
+        labels = "".join(f"[a{i}]" for i in range(len(regions)))
+        chain += f";{labels}concat=n={len(regions)}:v=0:a=1[out]"
+        subprocess.run(
+            ["ffmpeg", "-y", "-threads", _CPU_THREADS,
+             "-i", str(audio_path),
+             "-filter_complex", chain, "-map", "[out]", str(out)],
+            check=True, capture_output=True, timeout=300,
+        )
+
+    return out
+
+
+# ── Stage 1c: Audio Segmentation ───────────────────────────────────────────
 
 def _get_audio_duration(audio_path: Path) -> float:
     """Return duration in seconds via ffprobe."""

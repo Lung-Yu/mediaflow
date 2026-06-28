@@ -87,6 +87,7 @@ _ensure_venv() {
     # shellcheck disable=SC1091
     source venv/bin/activate
     pip install -q -r requirements.txt
+    [[ -f requirements-worker.txt ]] && pip install -q -r requirements-worker.txt
 }
 
 # ── Health checks ──────────────────────────────────────────────
