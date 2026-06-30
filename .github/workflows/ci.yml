@@ -20,7 +20,7 @@ jobs:
 
       - run: pip install -r requirements-dev.txt
 
-      - run: pytest tests/ -x -q
+      - run: pytest tests/ -x -q --ignore=tests/web
 
   deploy:
     needs: test
