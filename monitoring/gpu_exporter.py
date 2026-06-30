@@ -18,6 +18,17 @@ gpu_util  = Gauge("apple_gpu_utilization_percent", "Apple GPU busy %")
 gpu_power = Gauge("apple_gpu_power_watts",         "Apple GPU power in watts")
 
 
+def _parse_plist(raw: bytes) -> tuple:
+    data = plistlib.loads(raw)
+    gpu = data.get("gpu", {})
+    idle = float(gpu.get("idle_ratio", 1.0))
+    util = round((1.0 - idle) * 100, 2)
+    energy_mj  = float(gpu.get("gpu_energy", 0) or 0)
+    elapsed_ns = float(data.get("elapsed_ns", 1_000_000_000) or 1_000_000_000)
+    power = round(energy_mj / (elapsed_ns / 1e9) / 1000, 3)
+    return util, power
+
+
 def _collect() -> None:
     result = subprocess.run(
         ["sudo", "powermetrics", "--samplers", "gpu_power",
@@ -28,15 +39,9 @@ def _collect() -> None:
         log.warning("powermetrics error: %s", result.stderr[:200])
         return
 
-    data = plistlib.loads(result.stdout)
-    gpu  = data.get("gpu", {})
-
-    idle = gpu.get("idle_ratio", 1.0)
-    gpu_util.set(round((1.0 - float(idle)) * 100, 2))
-
-    energy_mj  = float(gpu.get("gpu_energy", 0) or 0)
-    elapsed_ns = float(data.get("elapsed_ns", 1_000_000_000) or 1_000_000_000)
-    gpu_power.set(round(energy_mj / (elapsed_ns / 1e9) / 1000, 3))
+    util, power = _parse_plist(result.stdout)
+    gpu_util.set(util)
+    gpu_power.set(power)
 
 
 if __name__ == "__main__":
