@@ -4,30 +4,21 @@ See [`docs/git-workflow.md`](git-workflow.md) for tagging procedure.
 
 ---
 
-## Next Release — v2.0.0 (unreleased)
+## Next Release — v2.1.0 (unreleased)
 
-**Theme:** v2 architecture — MinIO-native pipeline, DAG-Service, Progress Worker
+**Theme:** MLX-native LLM provider, vad_trim stage, correct_srt stage
 
 | Area | Change |
 |------|--------|
-| pipeline/worker.py | New standalone Progress Worker process; reads `mediaflow:jobs` MQ; ack-immediately pattern |
-| api/services/dag.py | DAG-Service: `trigger_job`, `handle_stage_callback`, `recover_stuck_jobs` (watchdog) |
-| api/services/project.py | Project Service: `on_upload_trigger`, FR6 validation, capacity check (429) |
-| api/routes/dag_callback.py | `POST /internal/stage-callback` — worker reports per-stage results |
-| api/routes/clip.py | `GET /jobs/{id}/segment/{index}/audio` — on-demand MinIO clip with 1h presigned URL |
-| api/routes/correction.py | `PATCH /jobs/{id}/correction`, `POST .../finalize` — FR4 transcript correction |
-| api/routes/jobs.py | `DELETE /jobs/{id}`, `POST /jobs/{id}/rerun`, `GET /jobs/{id}/events` |
-| pipeline/watcher.py | Uploads to MinIO `input/`; POSTs to `/jobs` (no longer runs pipeline locally) |
-| pipeline/runner.py | `per_stage_done` hook for intermediate persistence |
-| pipeline/worker.py | Intermediate persistence: `preprocess` → `clean.wav`, `transcribe` → `.srt` + `_segments.json` to `processing/{job}/intermediates/`; restore on mid-stage resume |
-| api/utils/minio.py | 4-bucket model: input / processing / output / clips |
-| DELETED | `api/mq/events_consumer.py`, `api/mq/jobs_consumer.py`, `api/services/event_processor.py`, `api/routes/events.py`, `api/routes/tasks.py`, `pipeline/mq/publisher.py` |
-| docs/architecture.md | Full design reference (API, DB schema, DAG flows, MinIO TTLs, retry model) |
-| docs/git-workflow.md | This workflow guide |
-| CLAUDE.md | Rewritten for v2; progressive disclosure to docs/ |
+| pipeline/providers/llm.py | `LLMProvider` abstraction; factory selects MLX or Ollama |
+| pipeline/providers/llm_mlx.py | `MLXLLMProvider`: lazy-load per job, unload + Metal cache clear after |
+| pipeline/stages.py | `vad_trim` stage (silence removal before transcribe); `correct_srt` stage (LLM post-correction) |
+| api/db/migrations/006_general_v3.sql | `general-v3` dag_flow: preprocess → vad_trim → transcribe → correct_srt → summarize |
+| pipeline/stages.py | `from __future__ import annotations` — fix Python 3.9 runtime error on union type hints |
+| pipeline/stages.py | `summarize()`: fix `model` variable undefined after LLMProvider refactor (md + JSON output) |
+| frontend/src/api/client.ts | `rerunTask`: pass `null` body to `json()` (3-arg signature) |
 
 **Pre-release checklist:**
-- [ ] `pytest tests/ -q --ignore=tests/web` — 98 passed, 0 failed
 - [ ] Smoke test: `bash tests/run-pipeline-test.sh`
 - [ ] Worker runs correctly with `python -m pipeline.worker`
 - [ ] Watcher picks up a dropped file and triggers the full pipeline
@@ -40,6 +31,7 @@ See [`docs/git-workflow.md`](git-workflow.md) for tagging procedure.
 
 | Version | Date | Theme | Notable changes |
 |---------|------|-------|-----------------|
+| [v2.1.0](#v210) | unreleased | MLX LLM provider | LLMProvider abstraction, vad_trim, correct_srt, general-v3 dag |
 | [v1.2.0](#v120) | 2026-06-21 | Editor UX | Shift+click range select, bulk delete, resizable panels, SrtEditor seek |
 | [v1.1.0](#v110) | 2026-06-?? | Frontend panels | RightPanel (audio player, segment list, edit), SummarySection, KeywordList |
 | [v1.0.0](#v100) | 2026-06-?? | Stable baseline | First production-ready release |

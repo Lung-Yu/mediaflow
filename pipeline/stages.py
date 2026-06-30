@@ -8,6 +8,7 @@ Stages in order:
 
 Each function returns the primary output path and raises on failure.
 """
+from __future__ import annotations
 import json
 import logging
 import os
@@ -854,7 +855,7 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict, provider: 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     md_lines = [
         f"# 摘要 — {srt_path.name}",
-        f"> 音檔長度：{_fmt_duration(duration_s)} ｜ 類型：{rtype} ｜ 生成：{now} ｜ 模型：{model}",
+        f"> 音檔長度：{_fmt_duration(duration_s)} ｜ 類型：{rtype} ｜ 生成：{now} ｜ 模型：{getattr(provider, '_model_id', None) or getattr(provider, '_model', '')}",
         "",
         "## 整體摘要",
         overview or "（Ollama 未回應）",
@@ -878,7 +879,7 @@ def summarize(stem: str, srt_path: Path, output_dir: Path, cfg: dict, provider: 
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "duration_seconds": round(duration_s),
         "duration_fmt": _fmt_duration(duration_s),
-        "model": model,
+        "model": getattr(provider, '_model_id', None) or getattr(provider, '_model', ''),
         "recording_type": rtype,
         "summary": overview,
         "topic_segments": topic_segments,
