@@ -4,7 +4,7 @@ See [`docs/git-workflow.md`](git-workflow.md) for tagging procedure.
 
 ---
 
-## Next Release — v2.1.0 (unreleased)
+## Next Release — v2.1.1 (unreleased)
 
 **Theme:** MLX-native LLM provider, vad_trim stage, correct_srt stage
 
@@ -31,7 +31,8 @@ See [`docs/git-workflow.md`](git-workflow.md) for tagging procedure.
 
 | Version | Date | Theme | Notable changes |
 |---------|------|-------|-----------------|
-| [v2.1.0](#v210) | unreleased | MLX LLM provider | LLMProvider abstraction, vad_trim, correct_srt, general-v3 dag |
+| [v2.1.1](#v211) | 2026-06-30 | Bug fixes | Python 3.9 compat, summarize model var, rerunTask body |
+| [v2.1.0](#v210) | 2026-06-30 | MLX LLM provider | LLMProvider abstraction, vad_trim, correct_srt, general-v3 dag |
 | [v1.2.0](#v120) | 2026-06-21 | Editor UX | Shift+click range select, bulk delete, resizable panels, SrtEditor seek |
 | [v1.1.0](#v110) | 2026-06-?? | Frontend panels | RightPanel (audio player, segment list, edit), SummarySection, KeywordList |
 | [v1.0.0](#v100) | 2026-06-?? | Stable baseline | First production-ready release |
