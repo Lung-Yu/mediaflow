@@ -3,4 +3,4 @@
 # CI uses Python 3.11 so it gets the safe version. Host (Python 3.9) stays at 8.4.2.
 pytest==8.4.2; python_version < "3.10"
 pytest>=9.0.3; python_version >= "3.10"
-pytest-asyncio==0.24.0
+pytest-asyncio==0.25.3
