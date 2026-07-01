@@ -1,6 +1,8 @@
 """FR4 Transcript Correction — rebuild corrected SRT, write to MinIO output/."""
 from __future__ import annotations
+import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import asyncpg
@@ -8,12 +10,15 @@ from fastapi import HTTPException
 
 from api.db.queries import get_job, upsert_job
 
+# ponytail: mirrors WORKSPACE_DIR used by files.py so GET /files/{stem}/srt stays live
+_OUTPUT_DIR = Path(os.getenv("WORKSPACE_DIR", "./workspace")) / "3_output"
+
 
 def _fmt_ts(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
-    ms = int((seconds % 1) * 1000)
+    ms = round((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
@@ -44,6 +49,11 @@ async def apply_correction(
     srt_content = rebuild_srt(segments)
     corrected_key = f"output/{job_id}/{job_id}_corrected.srt"
     minio.put_bytes(corrected_key, srt_content.encode(), bucket=minio.output_bucket)
+
+    # Mirror to local disk so GET /files/{stem}/srt returns corrected version
+    local_srt = _OUTPUT_DIR / f"{job_id}.srt"
+    if local_srt.exists():
+        local_srt.write_text(srt_content, encoding="utf-8")
 
     new_vstatus = (
         "in_progress"

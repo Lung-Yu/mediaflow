@@ -135,8 +135,8 @@ async def get_task_aggregates(pool: asyncpg.Pool) -> dict:
 
 async def get_stage_events(pool: asyncpg.Pool, job_id: str) -> list:
     rows = await pool.fetch(
-        """SELECT stage, ts FROM events
-           WHERE job_id = $1 AND status = 'success' AND stage IS NOT NULL
+        """SELECT stage, status, retry_attempt, error_msg, ts FROM events
+           WHERE job_id = $1 AND stage IS NOT NULL
            ORDER BY ts ASC""",
         job_id,
     )
