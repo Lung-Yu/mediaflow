@@ -20,7 +20,6 @@ function parseHms(t: string): number {
   return +h * 3600 + +m * 60 + +s + +ms / 1000
 }
 
-// Used by onSeek handler
 export function tcToSeconds(tc: string): number {
   return parseHms(tc.split(' --> ')[0])
 }
@@ -39,6 +38,7 @@ function toCorrection(
 
 export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number) => void }) {
   const [edits, setEdits] = useState<Record<number, string>>({})
+  const [savedOnce, setSavedOnce] = useState(false)
   const qc = useQueryClient()
 
   const { data: rawSrt = '' } = useQuery({
@@ -55,6 +55,7 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
       qc.invalidateQueries({ queryKey: ['segments', stem] })
       qc.invalidateQueries({ queryKey: ['raw-srt', stem] })
       setEdits({})
+      setSavedOnce(true)
     },
   })
 
@@ -86,14 +87,16 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
           >
             {save.isPending ? '儲存中…' : '儲存'}
           </button>
-          <button
-            onClick={() => finalize.mutate()}
-            disabled={finalize.isPending || dirty}
-            className="text-xs px-3 py-1 bg-green-800 text-white rounded hover:bg-green-700 disabled:opacity-40"
-            title="標記此逐字稿已確認完成"
-          >
-            {finalize.isPending ? '確認中…' : '✓ 確認完成'}
-          </button>
+          {savedOnce && (
+            <button
+              onClick={() => finalize.mutate()}
+              disabled={finalize.isPending || dirty}
+              className="text-xs px-3 py-1 bg-green-800 text-white rounded hover:bg-green-700 disabled:opacity-40"
+              title="標記此逐字稿已確認完成"
+            >
+              {finalize.isPending ? '確認中…' : '✓ 確認完成'}
+            </button>
+          )}
         </div>
       </div>
 
