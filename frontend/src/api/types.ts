@@ -74,3 +74,18 @@ export interface UploadCompleteRequest {
   parts: { part_number: number; etag: string }[]
   initial_prompt?: string
 }
+
+export interface CorrectionSegment {
+  index: number
+  start: number
+  end: number
+  text: string
+}
+
+export interface JobEvent {
+  stage: string
+  status: 'started' | 'success' | 'failed'
+  retry_attempt: number
+  error_msg: string | null
+  ts: number
+}

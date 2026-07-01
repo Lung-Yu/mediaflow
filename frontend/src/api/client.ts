@@ -1,6 +1,7 @@
 import type {
   StatusOverview, SrtFile, Segment, SpeakerData,
-  StatsOverview, Keyword, UploadInitRequest, UploadInitResponse, UploadCompleteRequest,
+  StatsOverview, Keyword, UploadInitRequest, UploadInitResponse,
+  UploadCompleteRequest, CorrectionSegment, JobEvent,
 } from './types'
 
 const BASE = '/api'
@@ -51,5 +52,11 @@ export const api = {
                       json<{ job_id: string; status: string }>('POST', `/jobs/${stem}/rerun`, null),
   cancelTask:       (stem: string) => del(`/jobs/${stem}`),
   deleteFile:       (stem: string) => del(`/files/${stem}`),
+  saveCorrection:   (jobId: string, segments: CorrectionSegment[]) =>
+                      json<void>('PATCH', `/jobs/${jobId}/correction`, { segments }),
+  finalizeCorrection: (jobId: string) =>
+                      json<void>('POST', `/jobs/${jobId}/correction/finalize`, null),
+  getJobEvents:     (jobId: string) =>
+                      get<JobEvent[]>(`/jobs/${jobId}/events`),
   audioUrl:         (stem: string) => `${BASE}/files/${stem}/audio`,
 }
