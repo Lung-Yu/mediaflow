@@ -1,6 +1,7 @@
 # Python
 venv/
 venv-asr/
+venv-asr-mlx/
 venv-diarize/
 venv-whisper/
 __pycache__/
@@ -44,3 +45,4 @@ models/
 # Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
