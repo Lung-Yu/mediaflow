@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
+import type { CorrectionSegment } from '@/api/types'
 
 function parseSrt(text: string): { index: number; tc: string; text: string }[] {
   const blocks = text.trim().split(/\n\n+/)
@@ -13,14 +14,27 @@ function parseSrt(text: string): { index: number; tc: string; text: string }[] {
   })
 }
 
-function srtToText(segments: { index: number; tc: string; text: string }[]): string {
-  return segments.map(s => `${s.index}\n${s.tc}\n${s.text}`).join('\n\n') + '\n'
-}
-
-function tcToSeconds(tc: string): number {
-  const [h, m, rest] = tc.split(' --> ')[0].split(':')
+function parseHms(t: string): number {
+  const [h, m, rest] = t.trim().split(':')
   const [s, ms] = rest.split(',')
   return +h * 3600 + +m * 60 + +s + +ms / 1000
+}
+
+// Used by onSeek handler
+export function tcToSeconds(tc: string): number {
+  return parseHms(tc.split(' --> ')[0])
+}
+
+function toCorrection(
+  parsed: { index: number; tc: string; text: string }[],
+  edits: Record<number, string>,
+): CorrectionSegment[] {
+  return parsed.map(s => ({
+    index: s.index,
+    start: parseHms(s.tc.split(' --> ')[0]),
+    end:   parseHms(s.tc.split(' --> ')[1]),
+    text:  edits[s.index] ?? s.text,
+  }))
 }
 
 export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number) => void }) {
@@ -36,15 +50,16 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
   const parsed = parseSrt(rawSrt).filter(s => s.text.trim() !== '')
 
   const save = useMutation({
-    mutationFn: () => {
-      const updated = parsed.map(s => ({ ...s, text: edits[s.index] ?? s.text }))
-      return api.saveSrt(stem, srtToText(updated))
-    },
+    mutationFn: () => api.saveCorrection(stem, toCorrection(parsed, edits)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['segments', stem] })
       qc.invalidateQueries({ queryKey: ['raw-srt', stem] })
       setEdits({})
     },
+  })
+
+  const finalize = useMutation({
+    mutationFn: () => api.finalizeCorrection(stem),
   })
 
   const dirty = !!Object.keys(edits).length
@@ -54,6 +69,7 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
       <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800 flex-shrink-0">
         <span className="text-xs text-neutral-500">
           直接點擊段落文字即可修改{dirty && <span className="ml-2 text-yellow-500">● 未儲存</span>}
+          {finalize.isSuccess && <span className="ml-2 text-green-500">✓ 已確認</span>}
         </span>
         <div className="flex gap-2">
           <button
@@ -69,6 +85,14 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
             className="text-xs px-3 py-1 bg-purple-700 text-white rounded hover:bg-purple-600 disabled:opacity-40"
           >
             {save.isPending ? '儲存中…' : '儲存'}
+          </button>
+          <button
+            onClick={() => finalize.mutate()}
+            disabled={finalize.isPending || dirty}
+            className="text-xs px-3 py-1 bg-green-800 text-white rounded hover:bg-green-700 disabled:opacity-40"
+            title="標記此逐字稿已確認完成"
+          >
+            {finalize.isPending ? '確認中…' : '✓ 確認完成'}
           </button>
         </div>
       </div>
@@ -101,6 +125,11 @@ export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number)
       {save.isError && (
         <div className="px-4 py-2 text-xs text-red-400 border-t border-red-900 flex-shrink-0">
           儲存失敗 — {String(save.error)}
+        </div>
+      )}
+      {finalize.isError && (
+        <div className="px-4 py-2 text-xs text-red-400 border-t border-red-900 flex-shrink-0">
+          確認失敗 — {String(finalize.error)}
         </div>
       )}
     </div>
