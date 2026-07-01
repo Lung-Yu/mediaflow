@@ -111,7 +111,10 @@ llm:
   backend: mlx
   model: mlx-community/Qwen2.5-14B-Instruct-4bit
 
-# ollama:  (legacy — use llm: section above)
+# DEPRECATED — use llm: section above.
+# ollama: is kept for reference only; it is ignored when llm.backend = mlx.
+# To use Ollama: set llm.backend: ollama and llm.model: qwen2.5:14b
+# ollama:
 #   service_url: http://localhost:11434
 #   model: qwen2.5:14b
 
