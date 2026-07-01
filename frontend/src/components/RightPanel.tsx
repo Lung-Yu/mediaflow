@@ -7,8 +7,9 @@ import { SrtSegmentList } from '@/components/SrtSegmentList'
 import { SrtEditor } from '@/components/SrtEditor'
 import { SummarySection } from '@/components/SummarySection'
 import { KeywordList } from '@/components/KeywordList'
+import { JobAuditLog } from '@/components/JobAuditLog'
 
-type Tab = 'summary' | 'keywords' | 'edit'
+type Tab = 'summary' | 'keywords' | 'edit' | 'log'
 
 interface Props {
   stem: string | null
@@ -121,7 +122,7 @@ export function RightPanel({ stem }: Props) {
         >
           {/* Tab bar */}
           <div className="flex flex-shrink-0 border-b border-neutral-800">
-            {([['summary', '摘要'], ['keywords', '關鍵字'], ['edit', '校正逐字稿']] as [Tab, string][]).map(([key, label]) => (
+            {([['summary', '摘要'], ['keywords', '關鍵字'], ['edit', '校正逐字稿'], ['log', '紀錄']] as [Tab, string][]).map(([key, label]) => (
               <button key={key} onClick={() => setTab(key)}
                 className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${tab === key ? 'text-purple-300 border-purple-500' : 'text-neutral-500 border-transparent hover:text-neutral-300'}`}
               >{label}</button>
@@ -138,6 +139,7 @@ export function RightPanel({ stem }: Props) {
               onSeek={hasAudio ? (t) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
             />
           )}
+          {tab === 'log' && <JobAuditLog stem={stem} />}
           </div>
         </div>
       </div>
