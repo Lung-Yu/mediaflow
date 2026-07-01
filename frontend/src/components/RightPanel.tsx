@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -18,11 +18,14 @@ interface Props {
 export function RightPanel({ stem }: Props) {
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<Tab>('summary')
+  const [savedOnce, setSavedOnce] = useState(false)
   const [currentTime, setCurrentTime] = useState(-1)
   const [bottomH, setBottomH] = useState<number | null>(null) // null = 50/50 via flex
   const audioRef = useRef<HTMLAudioElement>(null)
   const resizeAreaRef = useRef<HTMLDivElement>(null)
   const debouncedQ = useDebounce(q, 300)
+
+  useEffect(() => { setSavedOnce(false) }, [stem])
 
   const { data: speakerData } = useQuery({
     queryKey: ['speaker-data', stem],
@@ -137,6 +140,8 @@ export function RightPanel({ stem }: Props) {
             <SrtEditor
               stem={stem}
               onSeek={hasAudio ? (t) => { if (audioRef.current) audioRef.current.currentTime = t } : undefined}
+              savedOnce={savedOnce}
+              setSavedOnce={setSavedOnce}
             />
           )}
           {tab === 'log' && <JobAuditLog stem={stem} />}

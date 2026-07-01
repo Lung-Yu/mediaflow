@@ -21,6 +21,7 @@ async function json<T>(method: string, path: string, body: unknown): Promise<T> 
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`)
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 

@@ -36,9 +36,13 @@ function toCorrection(
   }))
 }
 
-export function SrtEditor({ stem, onSeek }: { stem: string; onSeek?: (t: number) => void }) {
+export function SrtEditor({ stem, onSeek, savedOnce, setSavedOnce }: {
+  stem: string
+  onSeek?: (t: number) => void
+  savedOnce: boolean
+  setSavedOnce: (v: boolean) => void
+}) {
   const [edits, setEdits] = useState<Record<number, string>>({})
-  const [savedOnce, setSavedOnce] = useState(false)
   const qc = useQueryClient()
 
   const { data: rawSrt = '' } = useQuery({
