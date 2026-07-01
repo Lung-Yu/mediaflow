@@ -208,7 +208,9 @@ def execute(
         pub.publish("stage.started", ctx["stem"], stage=sid)
         ctx["_last_stage"] = sid
         t0 = time.monotonic()
-        ctx, extra = STAGE_RUNNERS[sid](ctx, cfg)
+        _overrides = {k: v for k, v in s.items() if k not in ("id", "enabled")}
+        _stage_cfg = {**cfg, sid: {**cfg.get(sid, {}), **_overrides}} if _overrides else cfg
+        ctx, extra = STAGE_RUNNERS[sid](ctx, _stage_cfg)
         elapsed = time.monotonic() - t0
         if per_stage_done:
             try:

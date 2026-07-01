@@ -151,7 +151,7 @@ def vad_trim(audio_path: Path, workspace: Path, cfg: dict) -> Path:
             "webrtcvad not installed. Run: pip install webrtcvad"
         )
 
-    vad_cfg = cfg.get("vad", {})
+    vad_cfg = cfg.get("vad_trim", cfg.get("vad", {}))
     aggressiveness = int(vad_cfg.get("aggressiveness", 2))   # 0=lenient … 3=aggressive
     padding_ms     = int(vad_cfg.get("padding_ms", 300))     # ms of context around speech
 
